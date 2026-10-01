@@ -27,7 +27,7 @@ const ItemTable = styled.table`
     text-align: center;
     overflow-wrap: break-word;
     word-break: break-word;
-    font-size: 18px;
+    font-size: 16px;
   }
 
   th {
@@ -50,30 +50,10 @@ const ItemTable = styled.table`
     color: #000;
   }
 
-  td input {
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    padding: 4px;
-    font-size: 14px;
-    width: 90%;
-  }
-
-  td select {
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    padding: 4px;
-    font-size: 12px;
-    min-width: 180px;
-  }
-
-  .sno {
-    min-width: 50px;
-  }
-
   @media print {
     th, td {
       font-size: 11px; 
-      padding:5px; 
+      padding: 5px; 
     }
   }
 `;
@@ -90,13 +70,13 @@ const DateRange = styled.div`
 `;
 
 const Footer = styled.footer`
-    text-align: center;
-    padding: 10px;
-    background-color: #164863;
-    color: white;
-    margin-top: 0px;
-    display: none;
-    @media print {
+  text-align: center;
+  padding: 10px;
+  background-color: #164863;
+  color: white;
+  margin-top: 0px;
+  display: none;
+  @media print {
     display: block;
   }
 `;
@@ -126,15 +106,19 @@ export const ComparisonReport = React.forwardRef(({ fromDate, toDate }, ref) => 
   const [loading, setLoading] = useState(true);
   const [months, setMonths] = useState([]);
 
+  // Use current year range as default if not passed from navigation
+  const effectiveFromDate = fromDate || new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0];
+  const effectiveToDate = toDate || new Date().toISOString().split('T')[0];
+
   useEffect(() => {
     axios.get(`${import.meta.env.VITE_RMK_MESS_URL}/comparison/report`, {
       params: {
-        fdate: fromDate,
-        tdate: toDate
+        fdate: effectiveFromDate,
+        tdate: effectiveToDate
       }
     })
     .then(res => {
-      const fetchedData = res.data || [];
+      const fetchedData = Array.isArray(res.data) ? res.data : [];
       setData(fetchedData);
 
       const monthSet = new Set();
@@ -152,12 +136,13 @@ export const ComparisonReport = React.forwardRef(({ fromDate, toDate }, ref) => 
     })
     .catch(err => {
       console.error("Error fetching report data:", err);
+      setData([]);
       setLoading(false);
     });
-  }, [fromDate, toDate]);
+  }, [effectiveFromDate, effectiveToDate]);
 
   const formatNumber = (number) => {
-    return Number(number).toFixed(2);
+    return Number(number || 0).toFixed(2);
   };
 
   if (loading) {
@@ -188,8 +173,8 @@ export const ComparisonReport = React.forwardRef(({ fromDate, toDate }, ref) => 
       </PrintHeader>
       <h1>Comparison Report</h1>
       <DateRange>
-        <h2>From: {fromDate}</h2>
-        <h2>To: {toDate}</h2>
+        <h2>From: {effectiveFromDate}</h2>
+        <h2>To: {effectiveToDate}</h2>
       </DateRange>
       <ItemTable>
         <thead>
@@ -210,35 +195,44 @@ export const ComparisonReport = React.forwardRef(({ fromDate, toDate }, ref) => 
           </tr>
         </thead>
         <tbody>
-          {data.map((row, index) => (
-            <tr key={index}>
-              <td>{row.item_name}</td>
-              <td>{row.item_category}</td>
-              {months.map(month => (
-                <React.Fragment key={month}>
-                  <td>{(row[`${month}_quantity`] ?? '-') === '-' ? '-' : row[`${month}_quantity`].toFixed(2)}</td>
-                  <td>{(row[`${month}_amount`] ?? '-') === '-' ? '-' : row[`${month}_amount`].toFixed(2)}</td>
-                </React.Fragment>
-              ))}
+          {data.length > 0 ? (
+            data.map((row, index) => (
+              <tr key={index}>
+                <td>{row.item_name}</td>
+                <td>{row.item_category}</td>
+                {months.map(month => (
+                  <React.Fragment key={month}>
+                    <td>{formatNumber(row[`${month}_quantity`])}</td>
+                    <td>{formatNumber(row[`${month}_amount`])}</td>
+                  </React.Fragment>
+                ))}
+              </tr>
+            ))
+          ) : (
+            <tr>
+              <td colSpan={months.length > 0 ? months.length * 2 + 2 : 4}>No data available for selected range</td>
             </tr>
-          ))}
-          <tr>
-            <td><strong>Total</strong></td>
-            {months.map(month => {
-              const totalAmount = data.reduce((acc, row) => acc + (Number(row[`${month}_amount`] ?? 0) || 0), 0);
-              return (
-                <React.Fragment key={month}>
-                  <td>-</td> {/* No total for quantity */}
-                  <td>{formatNumber(totalAmount.toFixed(2))}</td>
-                </React.Fragment>
-              );
-            })}
-          </tr>
+          )}
+          {data.length > 0 && (
+            <tr>
+              <td><strong>Total</strong></td>
+              <td></td>
+              {months.map(month => {
+                const totalAmount = data.reduce((acc, row) => acc + (Number(row[`${month}_amount`]) || 0), 0);
+                return (
+                  <React.Fragment key={month}>
+                    <td>-</td>
+                    <td><strong>{formatNumber(totalAmount)}</strong></td>
+                  </React.Fragment>
+                );
+              })}
+            </tr>
+          )}
         </tbody>
       </ItemTable>
-          <Footer>
-                Copyright © 2024. All rights reserved to DEPARTMENT of INFORMATION TECHNOLOGY - RMKEC
-            </Footer>
+      <Footer>
+        Copyright © 2024. All rights reserved to DEPARTMENT of INFORMATION TECHNOLOGY - RMKEC
+      </Footer>
     </Container>
   );
 });

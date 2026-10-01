@@ -16,9 +16,9 @@ const Test = styled.div`
 const ButtonContainer = styled.div`
   display: flex;
   justify-content: center;
-  gap: 20px; /* Space between buttons */
-  margin: 20px 0; /* Space around buttons */
-  z-index: 10; /* Ensure buttons are above other content */
+  gap: 20px;
+  margin: 20px 0;
+  z-index: 10;
 `;
 
 const ReportContainer = styled.div`
@@ -31,48 +31,31 @@ const PrintButton = styled.button`
   background-color: #4CAF50;
   border: none;
   color: white;
-  padding: 15px 32px;
+  padding: 12px 24px;
   text-align: center;
-  text-decoration: none;
   font-size: 16px;
   cursor: pointer;
   border-radius: 8px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  transition: background-color 0.3s, box-shadow 0.3s;
+  transition: background-color 0.3s;
 
   &:hover {
     background-color: #45a049;
-    box-shadow: 0 8px 10px rgba(0, 0, 0, 0.2);
-  }
-
-  &:active {
-    background-color: #3e8e41;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
-    transform: translateY(2px);
   }
 `;
 
 const ExportButton = styled.button`
-  background-color: #2196F3; /* Blue */
+  background-color: #2196F3;
   border: none;
   color: white;
-  padding: 15px 32px;
+  padding: 12px 24px;
   text-align: center;
   font-size: 16px;
   cursor: pointer;
   border-radius: 8px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  transition: background-color 0.3s, box-shadow 0.3s;
+  transition: background-color 0.3s;
 
   &:hover {
     background-color: #1976D2;
-    box-shadow: 0 8px 10px rgba(0, 0, 0, 0.2);
-  }
-
-  &:active {
-    background-color: #1565C0;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
-    transform: translateY(2px);
   }
 `;
 
@@ -82,7 +65,10 @@ const PrintComparisonReport = () => {
   const { fromDate, toDate } = location.state || {};
 
   const handleExport = () => {
-    const ws = XLSX.utils.table_to_sheet(reportRef.current.querySelector('table'));
+    if (!reportRef.current) return;
+    const table = reportRef.current.querySelector('table');
+    if (!table) return;
+    const ws = XLSX.utils.table_to_sheet(table);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Comparison Report');
     const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });

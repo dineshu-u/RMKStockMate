@@ -5,18 +5,25 @@ const bodyParser = require('body-parser');
 const router = express.Router();
 
 router.get('/report', async (req, res) => {
-  const f = req.query.fdate; // Start date in 'YYYY-MM-DD' format
-  const t = req.query.tdate; // End date in 'YYYY-MM-DD' format
+  // If dates are missing, fallback to current year start and today
+  const defaultStart = new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0];
+  const defaultEnd = new Date().toISOString().split('T')[0];
+
+  const f = req.query.fdate || defaultStart;
+  const t = req.query.tdate || defaultEnd;
 
   try {
-    // Extract year and month range from the dates
     const startDate = new Date(f);
     const endDate = new Date(t);
     const months = [];
     const monthColumns = [];
 
-    for (let m = startDate.getMonth(); m <= endDate.getMonth(); m++) {
-      const monthName = new Date(startDate.getFullYear(), m).toLocaleString('default', { month: 'long' });
+    // Ensure valid start and end month indices
+    const startMonth = isNaN(startDate.getMonth()) ? 0 : startDate.getMonth();
+    const endMonth = isNaN(endDate.getMonth()) ? 11 : endDate.getMonth();
+
+    for (let m = startMonth; m <= endMonth; m++) {
+      const monthName = new Date(startDate.getFullYear(), m, 1).toLocaleString('default', { month: 'long' });
       months.push(monthName);
       monthColumns.push(`
         COALESCE(SUM(CASE WHEN MONTH(p.date) = ${m + 1} THEN p.quantity ELSE 0 END), 0) AS ${monthName}_quantity,
@@ -31,13 +38,11 @@ router.get('/report', async (req, res) => {
         ${monthColumns.join(',\n')}
       FROM purchase p
       WHERE p.date BETWEEN ? AND ?
-      GROUP BY p.category, p.item;  -- Include p.category in GROUP BY
+      GROUP BY p.category, p.item;
     `;
 
     const [rows] = await db.promise().query(sqlQuery, [f, t]);
-
     res.status(200).send(rows);
-    console.log(rows);
   } catch (err) {
     console.error("Error fetching report data:", err);
     res.status(500).send({ error: 'An error occurred while fetching report data' });

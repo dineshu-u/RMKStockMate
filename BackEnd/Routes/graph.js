@@ -16,9 +16,9 @@ router.get('/last-7-days', (req, res) => {
     const last7Days = getLast7Days();
     const resultsMap = last7Days.map(date => ({ date: date.split('-')[2], count: 0 })); // Extracting DD
 
-    // Query to get the purchases grouped by date for the last 7 days
+    // Format date directly in MySQL query so it returns a clean YYYY-MM-DD string
     const query = `
-        SELECT date, SUM(amount) AS totalAmount
+        SELECT DATE_FORMAT(date, '%Y-%m-%d') AS date, SUM(amount) AS totalAmount
         FROM purchase
         WHERE date IN (?)
         GROUP BY date
@@ -26,21 +26,25 @@ router.get('/last-7-days', (req, res) => {
 
     db.query(query, [last7Days], (error, results) => {
         if (error) {
+            console.error('Database error in /last-7-days:', error);
             return res.status(500).json({ error: 'Database error' });
         }
 
-        // Map the results to the response format
+        // Map the results to the response format safely
         results.forEach(row => {
-            const dateIndex = resultsMap.findIndex(item => item.date === row.date.split('-')[2]); // Extracting DD
+            const dateStr = typeof row.date === 'string' 
+                ? row.date 
+                : new Date(row.date).toISOString().split('T')[0];
+            const day = dateStr.split('-')[2];
+            const dateIndex = resultsMap.findIndex(item => item.date === day);
             if (dateIndex !== -1) {
-                resultsMap[dateIndex].count = row.totalAmount;
+                resultsMap[dateIndex].count = Math.floor(row.totalAmount || 0);
             }
         });
 
         res.json(resultsMap);
     });
 });
-
 
 const getCurrentMonthRange = () => {
     const today = new Date();

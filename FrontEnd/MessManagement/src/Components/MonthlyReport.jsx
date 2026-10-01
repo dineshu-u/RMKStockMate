@@ -213,21 +213,14 @@ export const MonthlyReport = React.forwardRef(({ fromDate, toDate }, ref) => {
     );
   }
 
-  const purchaseTotal = data.reduce((acc, row) => acc + row.purchaseAmount, 0).toFixed(2);
-  const rmkTotal = data.reduce((acc, row) => acc + (row.RMK * row.unitPrice), 0).toFixed(2);
-  const rmdTotal = data.reduce((acc, row) => acc + (row.RMD * row.unitPrice), 0).toFixed(2);
-  const rmkcetTotal = data.reduce((acc, row) => acc + (row.RMKCET * row.unitPrice), 0).toFixed(2);
-  const schoolTotal = data.reduce((acc, row) => acc + (row.RMKSCHOOL * row.unitPrice), 0).toFixed(2);
-  const issueTotalAmount = data.reduce((acc, row) => acc + ((row.RMK + row.RMD + row.RMKCET + row.RMKSCHOOL) * row.unitPrice), 0).toFixed(2);
-  const openingStockAmountTotal = data.reduce((acc, row) => acc + (row.adjustedOpeningStock ?? 0), 0).toFixed(2);
-  const totalAmountTotal = data.reduce((acc, row) => acc + (row.purchaseAmount + (row.adjustedOpeningStock || 0)), 0).toFixed(2);
-  const closingStockTotalAmount = data.reduce((acc, row) => {
-    const totalQuantity = row.purchaseQuantity + row.openingStock;
-    const issueQuantity = row.RMK + row.RMD + row.RMKCET + row.RMKSCHOOL;
-    const closingQuantity = totalQuantity - issueQuantity > 0 ? totalQuantity - issueQuantity : 0;
-    const closingAmount = closingQuantity * row.unitPrice;
-    return acc + closingAmount;
-  }, 0).toFixed(2);
+    const purchaseTotal = data.reduce((acc, row) => acc + Number(row.purchaseAmount || 0), 0).toFixed(2);
+  const rmkTotal = data.reduce((acc, row) => acc + (Number(row.RMK || 0) * Number(row.unitPrice || 0)), 0).toFixed(2);
+  const rmdTotal = data.reduce((acc, row) => acc + (Number(row.RMD || 0) * Number(row.unitPrice || 0)), 0).toFixed(2);
+  const rmkcetTotal = data.reduce((acc, row) => acc + (Number(row.RMKCET || 0) * Number(row.unitPrice || 0)), 0).toFixed(2);
+  const schoolTotal = data.reduce((acc, row) => acc + (Number(row.RMKSCHOOL || 0) * Number(row.unitPrice || 0)), 0).toFixed(2);
+  const issueTotalAmount = data.reduce((acc, row) => acc + ((Number(row.RMK || 0) + Number(row.RMD || 0) + Number(row.RMKCET || 0) + Number(row.RMKSCHOOL || 0)) * Number(row.unitPrice || 0)), 0).toFixed(2);
+  const openingStockAmountTotal = data.reduce((acc, row) => acc + Number(row.adjustedOpeningStock || 0), 0).toFixed(2);
+  const totalAmountTotal = data.reduce((acc, row) => acc + (Number(row.purchaseAmount || 0) + Number(row.adjustedOpeningStock || 0)), 0).toFixed(2);
 
   return (
     <Container ref={ref} className="print-container">
@@ -284,33 +277,44 @@ export const MonthlyReport = React.forwardRef(({ fromDate, toDate }, ref) => {
           </tr>
         </thead>
 
-        {/* Table body */}
+                {/* Table body */}
         <tbody>
           {data.length > 0 ? (
             data.map((row, index) => {
-              const totalQuantity = row.purchaseQuantity + row.openingStock;
-              const totalAmount = row.purchaseAmount + (row.adjustedOpeningStock || 0);
-              const issueQuantity = row.RMK + row.RMD + row.RMKCET + row.RMKSCHOOL;
-              const issueAmount = (row.RMK + row.RMD + row.RMKCET + row.RMKSCHOOL) * row.unitPrice;
+              const openingStock = Number(row.openingStock || 0);
+              const adjustedOpeningStock = Number(row.adjustedOpeningStock || 0);
+              const purchaseQuantity = Number(row.purchaseQuantity || 0);
+              const purchaseAmount = Number(row.purchaseAmount || 0);
+              const rmk = Number(row.RMK || 0);
+              const rmd = Number(row.RMD || 0);
+              const rmkcet = Number(row.RMKCET || 0);
+              const school = Number(row.RMKSCHOOL || 0);
+              const unitPrice = Number(row.unitPrice || 0);
+
+              const totalQuantity = purchaseQuantity + openingStock;
+              const totalAmount = purchaseAmount + adjustedOpeningStock;
+              const issueQuantity = rmk + rmd + rmkcet + school;
+              const issueAmount = issueQuantity * unitPrice;
               const closingQuantity = totalQuantity - issueQuantity > 0 ? totalQuantity - issueQuantity : 0;
               const closingAmount = totalAmount - issueAmount > 0 ? totalAmount - issueAmount : 0;
+
               return (
                 <tr key={index}>
                   <td>{row.item}</td>
-                  <td>{row.openingStock}</td>
-                  <td>{row.adjustedOpeningStock.toFixed(2)}</td>
-                  <td>{row.purchaseQuantity}</td>
-                  <td>{row.purchaseAmount.toFixed(2)}</td>
+                  <td>{openingStock}</td>
+                  <td>{adjustedOpeningStock.toFixed(2)}</td>
+                  <td>{purchaseQuantity}</td>
+                  <td>{purchaseAmount.toFixed(2)}</td>
                   <td>{totalQuantity}</td>
                   <td>{totalAmount.toFixed(2)}</td>
-                  <td>{row.RMK}</td>
-                  <td>{(row.RMK * row.unitPrice).toFixed(2)}</td>
-                  <td>{row.RMD}</td>
-                  <td>{(row.RMD * row.unitPrice).toFixed(2)}</td>
-                  <td>{row.RMKCET}</td>
-                  <td>{(row.RMKCET * row.unitPrice).toFixed(2)}</td>
-                  <td>{row.RMKSCHOOL}</td>
-                  <td>{(row.RMKSCHOOL * row.unitPrice).toFixed(2)}</td>
+                  <td>{rmk}</td>
+                  <td>{(rmk * unitPrice).toFixed(2)}</td>
+                  <td>{rmd}</td>
+                  <td>{(rmd * unitPrice).toFixed(2)}</td>
+                  <td>{rmkcet}</td>
+                  <td>{(rmkcet * unitPrice).toFixed(2)}</td>
+                  <td>{school}</td>
+                  <td>{(school * unitPrice).toFixed(2)}</td>
                   <td>{issueQuantity}</td>
                   <td>{issueAmount.toFixed(2)}</td>
                   <td>{closingQuantity}</td>
@@ -342,7 +346,7 @@ export const MonthlyReport = React.forwardRef(({ fromDate, toDate }, ref) => {
             <td></td>
             <td><strong>{issueTotalAmount}</strong></td>
             <td></td>
-            <td><strong>{totalAmountTotal - issueTotalAmount}</strong></td>
+            <td><strong>{(Number(totalAmountTotal) - Number(issueTotalAmount)).toFixed(2)}</strong></td>
           </tr>
         </tbody>
       </ItemTable>

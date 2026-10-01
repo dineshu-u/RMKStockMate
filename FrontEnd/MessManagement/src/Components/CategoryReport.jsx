@@ -203,17 +203,12 @@ export const CategoryReport = React.forwardRef(({ fromDate, toDate }, ref) => {
           ))}
           <tr>
           <td><strong>Total</strong></td>
-          <td><strong>{formatNumber(data.reduce((acc, row) => acc + row.purchase_amount, 0))}</strong></td>
-          <td><strong>{formatNumber(data.reduce((acc, row) => acc + row.RMK_amount, 0))}</strong></td>
-          <td><strong>{formatNumber(data.reduce((acc, row) => acc + row.RMD_amount, 0))}</strong></td>
-          <td><strong>{formatNumber(data.reduce((acc, row) => acc + row.RMKCET_amount, 0))}</strong></td>
-          <td><strong>{formatNumber(data.reduce((acc, row) => acc + row.RMKSCHOOL_amount, 0))}</strong></td>
-          <td><strong>{formatNumber(data.reduce((acc, row) => acc + row.total_amount, 0))}</strong></td>
-          {/* <td>
-          <strong>
-            {formatNumber(data.reduce((acc, row) => acc + Math.max(0, row.purchase_amount - row.total_amount), 0))}
-          </strong>
-          </td> */}
+          <td><strong>{formatNumber(data.reduce((acc, row) => acc + Number(row.purchase_amount || 0), 0))}</strong></td>
+          <td><strong>{formatNumber(data.reduce((acc, row) => acc + Number(row.RMK_amount || 0), 0))}</strong></td>
+          <td><strong>{formatNumber(data.reduce((acc, row) => acc + Number(row.RMD_amount || 0), 0))}</strong></td>
+          <td><strong>{formatNumber(data.reduce((acc, row) => acc + Number(row.RMKCET_amount || 0), 0))}</strong></td>
+          <td><strong>{formatNumber(data.reduce((acc, row) => acc + Number(row.RMKSCHOOL_amount || 0), 0))}</strong></td>
+          <td><strong>{formatNumber(data.reduce((acc, row) => acc + Number(row.total_amount || 0), 0))}</strong></td>
         </tr>
         </tbody>
       </ItemTable>
