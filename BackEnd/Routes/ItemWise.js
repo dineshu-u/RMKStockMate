@@ -1,5 +1,10 @@
 const express = require('express');
 const db = require('../db');
+const fs = require('fs');
+const path = require('path');
+const PDFDocument = require('pdfkit');
+const nodemailer = require('nodemailer');
+require('dotenv').config();
 const router = express.Router();
 
 // Route to get all master items
@@ -190,5 +195,317 @@ router.get('/report', async (req, res) => {
     res.status(500).json({ error: 'An error occurred while fetching report data' });
   }
 });
+
+// POST /item/send-report - Send Item Comparison Report via email
+router.post('/send-report', async (req, res) => {
+  try {
+    const { 
+      recipientEmail, 
+      subject, 
+      message, 
+      items, 
+      fdate1, 
+      tdate1, 
+      fdate2, 
+      tdate2 
+    } = req.body;
+
+    // Validate required fields
+    if (!recipientEmail || !items || !fdate1 || !tdate1 || !fdate2 || !tdate2) {
+      return res.status(400).json({ 
+        message: 'Missing required fields: recipientEmail, items, fdate1, tdate1, fdate2, tdate2' 
+      });
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(recipientEmail)) {
+      return res.status(400).json({ message: 'Invalid email format' });
+    }
+
+    // Parse items (support both array and comma-separated string)
+    let itemList = [];
+    if (Array.isArray(items)) {
+      itemList = items;
+    } else if (typeof items === 'string') {
+      itemList = items.split(',').map(s => s.trim()).filter(Boolean);
+    }
+
+    if (itemList.length === 0) {
+      return res.status(400).json({ message: 'At least one item is required' });
+    }
+
+    // Generate report data for all items (reuse existing getItemMetrics logic)
+    const reportData = [];
+    for (const itemName of itemList) {
+      const period1 = await getItemMetrics(itemName, fdate1, tdate1);
+      const period2 = await getItemMetrics(itemName, fdate2, tdate2);
+
+      reportData.push({
+        item: itemName,
+        period1: {
+          ...period1,
+          label: `Period 1 (${fdate1} to ${tdate1})`
+        },
+        period2: {
+          ...period2,
+          label: `Period 2 (${fdate2} to ${tdate2})`
+        },
+        difference: {
+          rmkQtyDiff: period2.RMK_quantity - period1.RMK_quantity,
+          rmdQtyDiff: period2.RMD_quantity - period1.RMD_quantity,
+          rmkcetQtyDiff: period2.RMKCET_quantity - period1.RMKCET_quantity,
+          schoolQtyDiff: period2.RMKSCHOOL_quantity - period1.RMKSCHOOL_quantity,
+          issuedQtyDiff: period2.Issued_quantity - period1.Issued_quantity
+        }
+      });
+    }
+
+    // Generate PDF
+    const pdfBuffer = await generateComparisonPDF(reportData, fdate1, tdate1, fdate2, tdate2);
+
+    // Send email
+    await sendReportEmail(recipientEmail, subject, message, pdfBuffer, fdate1, tdate1, fdate2, tdate2);
+
+    res.status(200).json({ message: `Report sent successfully to ${recipientEmail}` });
+
+  } catch (error) {
+    console.error('Error sending report:', error);
+    res.status(500).json({ message: 'Failed to send report. Please check email configuration and try again.' });
+  }
+});
+
+// Generate PDF for Item Comparison Report - matches Print Item Comparison layout exactly
+async function generateComparisonPDF(reportData, fdate1, tdate1, fdate2, tdate2) {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ margin: 40, size: 'A4', layout: 'landscape' });
+      const buffers = [];
+
+      doc.on('data', buffers.push.bind(buffers));
+      doc.on('end', () => resolve(Buffer.concat(buffers)));
+      doc.on('error', reject);
+
+      // Color palette (matching web report exactly)
+      const RMK_DARK = '#164863';
+      const RMK_LIGHT_BG = '#f1f5f9';
+      const RMK_TABLE_BORDER = '#cbd5e1';
+      const RMK_DIFF_BG = '#e2e8f0';
+      const RMK_POSITIVE = '#059669';
+      const RMK_NEGATIVE = '#dc2626';
+      const RMK_WHITE = '#ffffff';
+
+      const pageWidth = doc.page.width - 80; // landscape A4 minus margins
+      const colWidths = [180, 95, 95, 95, 95, 110]; // Period, RMKEC, RMDEC, RMKCET, Schools, Total Issued
+      const rowHeight = 38;
+      const tableLeftX = 40;
+
+      // Helper: draw a row with background and borders - matches web table exactly
+      function drawRow(values, options = {}) {
+        const { bold = false, bgColor = RMK_WHITE, fontColor = '#000000', fontSize = 11, isHeader = false } = options;
+        const y = doc.y;
+        doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(fontSize);
+        let x = tableLeftX;
+        values.forEach((val, idx) => {
+          // Cell background
+          doc.fillColor(bgColor).rect(x, y, colWidths[idx], rowHeight).fill();
+          // Cell border - all sides
+          doc.strokeColor(RMK_TABLE_BORDER).lineWidth(1).rect(x, y, colWidths[idx], rowHeight).stroke();
+          // Cell text
+          const textColor = isHeader ? RMK_WHITE : fontColor;
+          doc.fillColor(textColor);
+          const align = idx === 0 ? 'left' : 'center';
+          const padding = idx === 0 ? 12 : 0;
+          doc.text(val, x + padding, y + (rowHeight - fontSize) / 2, {
+            width: colWidths[idx] - padding * 2,
+            align: align
+          });
+          x += colWidths[idx];
+        });
+        doc.fillColor('#000000'); // reset
+        doc.y = y + rowHeight; // advance cursor to next row
+      }
+
+      // Helper: check if we need a new page
+      function ensureSpace(neededHeight) {
+        if (doc.y + neededHeight > doc.page.height - 60) {
+          doc.addPage();
+          drawHeader(); // Redraw header on new page
+        }
+      }
+
+      // Helper: draw header section - matches Print header
+      function drawHeader() {
+        // Title block
+        doc.fontSize(20).font('Helvetica-Bold').fillColor(RMK_DARK).text('R.M.K. GROUP OF INSTITUTIONS', { align: 'center' });
+        doc.moveDown(0.4);
+        doc.fontSize(14).font('Helvetica-Bold').text('FOOD MANAGEMENT SYSTEM', { align: 'center' });
+        doc.moveDown(0.4);
+        doc.fontSize(18).font('Helvetica-Bold').text('ITEM-WISE COMPARISON REPORT', { align: 'center' });
+        doc.moveDown(0.8);
+
+        // Period info
+        doc.fontSize(11).font('Helvetica').fillColor('#334155');
+        doc.text(`Period 1: ${fdate1} to ${tdate1}`, { indent: 0 });
+        doc.text(`Period 2: ${fdate2} to ${tdate2}`, { indent: 0 });
+        doc.text(`Generated: ${new Date().toLocaleDateString()}`, { indent: 0 });
+        doc.moveDown(1.5);
+      }
+
+      // Draw header on first page
+      drawHeader();
+
+      // Table for each item - exactly matching web report structure
+      for (let i = 0; i < reportData.length; i++) {
+        const data = reportData[i];
+        const p1 = data.period1;
+        const p2 = data.period2;
+        const diff = data.difference;
+
+        // Extract quantities
+        const p1RMK = Number(p1.RMK_quantity || 0);
+        const p1RMD = Number(p1.RMD_quantity || 0);
+        const p1RMKCET = Number(p1.RMKCET_quantity || 0);
+        const p1School = Number(p1.RMKSCHOOL_quantity || 0);
+        const p1Total = Number(p1.Issued_quantity || 0);
+
+        const p2RMK = Number(p2.RMK_quantity || 0);
+        const p2RMD = Number(p2.RMD_quantity || 0);
+        const p2RMKCET = Number(p2.RMKCET_quantity || 0);
+        const p2School = Number(p2.RMKSCHOOL_quantity || 0);
+        const p2Total = Number(p2.Issued_quantity || 0);
+
+        const diffRMK = p2RMK - p1RMK;
+        const diffRMD = p2RMD - p1RMD;
+        const diffRMKCET = p2RMKCET - p1RMKCET;
+        const diffSchool = p2School - p1School;
+        const diffTotal = p2Total - p1Total;
+
+        // Format numbers - match web formatting (2 decimal places)
+        const fmt = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+        // Period labels - exactly as web
+        const p1Label = `Period 1 (${fdate1} to ${tdate1})`;
+        const p2Label = `Period 2 (${fdate2} to ${tdate2})`;
+
+        // Ensure space for item table (item title + header + 3 data rows = ~200pt)
+        ensureSpace(220);
+
+        // Item title - matches web ItemSectionHeader
+        doc.fontSize(14).font('Helvetica-Bold').fillColor(RMK_DARK).text(`Item: ${data.item}`);
+        doc.moveDown(0.5);
+
+        // Table header row - matches web thead
+        drawRow(['Period', 'RMKEC', 'RMDEC', 'RMKCET', 'Schools', 'Total Issued'], {
+          bold: true,
+          bgColor: RMK_DARK,
+          fontColor: RMK_WHITE,
+          fontSize: 11,
+          isHeader: true
+        });
+
+        // Period 1 row - matches web tbody tr with background #f1f5f9
+        drawRow([p1Label, fmt(p1RMK), fmt(p1RMD), fmt(p1RMKCET), fmt(p1School), fmt(p1Total)], {
+          bold: true,
+          bgColor: RMK_LIGHT_BG,
+          fontColor: '#1e293b',
+          fontSize: 11
+        });
+
+        // Period 2 row
+        drawRow([p2Label, fmt(p2RMK), fmt(p2RMD), fmt(p2RMKCET), fmt(p2School), fmt(p2Total)], {
+          bold: true,
+          bgColor: RMK_LIGHT_BG,
+          fontColor: '#1e293b',
+          fontSize: 11
+        });
+
+        // Difference row - matches web: background #e2e8f0, bold, color-coded
+        const diffValues = ['Difference', fmt(diffRMK), fmt(diffRMD), fmt(diffRMKCET), fmt(diffSchool), fmt(diffTotal)];
+        const y = doc.y;
+        doc.font('Helvetica-Bold').fontSize(11);
+        let x = tableLeftX;
+        diffValues.forEach((val, idx) => {
+          doc.fillColor(RMK_DIFF_BG).rect(x, y, colWidths[idx], rowHeight).fill();
+          doc.strokeColor(RMK_TABLE_BORDER).lineWidth(1).rect(x, y, colWidths[idx], rowHeight).stroke();
+          
+          let textColor = '#1e293b';
+          if (idx > 0) {
+            const numVal = Number(val.replace(/,/g, ''));
+            textColor = numVal >= 0 ? RMK_POSITIVE : RMK_NEGATIVE;
+          }
+          doc.fillColor(textColor);
+          const align = idx === 0 ? 'left' : 'center';
+          const padding = idx === 0 ? 12 : 0;
+          doc.text(val, x + padding, y + (rowHeight - 11) / 2, {
+            width: colWidths[idx] - padding * 2,
+            align: align
+          });
+          x += colWidths[idx];
+        });
+        doc.fillColor('#000000');
+        doc.y = y + rowHeight; // advance cursor
+
+        // Small spacing after each item's table
+        doc.moveDown(1);
+
+        // Add page break if not last item and near bottom
+        if (i < reportData.length - 1 && doc.y > doc.page.height - 100) {
+          doc.addPage();
+          drawHeader();
+        }
+      }
+
+      // Footer on last page - minimal, only if space allows
+      if (doc.y < doc.page.height - 50) {
+        doc.fontSize(8).font('Helvetica-Oblique').fillColor('#64748b').text(
+          'RMKStockMate Food Management System',
+          { align: 'center' }
+        );
+      }
+
+      doc.end();
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+// Send email with PDF attachment
+async function sendReportEmail(recipientEmail, subject, message, pdfBuffer, fdate1, tdate1, fdate2, tdate2) {
+  // Create transporter
+  const transporter = nodemailer.createTransport({
+    host: process.env.EMAIL_HOST,
+    port: parseInt(process.env.EMAIL_PORT || '465'),
+    secure: process.env.EMAIL_SECURE === 'true',
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_APP_PASSWORD
+    }
+  });
+
+  // Verify connection
+  await transporter.verify();
+
+  // Generate filename
+  const fileName = `RMKStockMate_Item_Wise_Comparison_${fdate1}_to_${tdate2}.pdf`;
+
+  // Send email
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: recipientEmail,
+    subject: subject || 'RMKStockMate - Item-Wise Period Comparison Report',
+    text: message || 'Please find attached the Item-Wise Period Comparison Report.',
+    attachments: [
+      {
+        filename: fileName,
+        content: pdfBuffer,
+        contentType: 'application/pdf'
+      }
+    ]
+  };
+
+  await transporter.sendMail(mailOptions);
+}
 
 module.exports = router;

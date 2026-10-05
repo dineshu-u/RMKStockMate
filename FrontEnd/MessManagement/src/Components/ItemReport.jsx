@@ -763,41 +763,45 @@ export const ItemReport = forwardRef(({ fromDate, toDate, fromDate1, toDate1, fr
               const p1Label = p1.fromDate && p1.toDate ? `${p1.fromDate} to ${p1.toDate}` : `${p1FromStr} to ${p1ToStr}`;
               const p2Label = p2.fromDate && p2.toDate ? `${p2.fromDate} to ${p2.toDate}` : `${p2FromStr} to ${p2ToStr}`;
 
+              // Extract only the 5 quantity fields we care about
+              const p1RMK = Number(p1.RMK_quantity || 0);
+              const p1RMD = Number(p1.RMD_quantity || 0);
+              const p1RMKCET = Number(p1.RMKCET_quantity || 0);
+              const p1School = Number(p1.RMKSCHOOL_quantity || 0);
+              const p1Total = Number(p1.Issued_quantity || 0);
+
+              const p2RMK = Number(p2.RMK_quantity || 0);
+              const p2RMD = Number(p2.RMD_quantity || 0);
+              const p2RMKCET = Number(p2.RMKCET_quantity || 0);
+              const p2School = Number(p2.RMKSCHOOL_quantity || 0);
+              const p2Total = Number(p2.Issued_quantity || 0);
+
+              // Differences: Period 2 - Period 1
+              const diffRMK = p2RMK - p1RMK;
+              const diffRMD = p2RMD - p1RMD;
+              const diffRMKCET = p2RMKCET - p1RMKCET;
+              const diffSchool = p2School - p1School;
+              const diffTotal = p2Total - p1Total;
+
+              const diffColor = (val) => val >= 0 ? '#059669' : '#dc2626';
+
               return (
                 <ItemSection key={idx} className="item-section">
                   <ItemSectionHeader>
                     <h2>Item: {itemName}</h2>
                   </ItemSectionHeader>
 
-                  {/* Comparison Table */}
+                  {/* Comparison Table - Quantity Only */}
                   <TableWrapper>
                     <ItemTable>
                       <thead>
                         <tr>
-                          <th rowSpan="2" style={{ width: '18%' }}>Period / Range</th>
-                          <th colSpan="2">Purchased</th>
-                          <th colSpan="2">RMKEC</th>
-                          <th colSpan="2">RMDEC</th>
-                          <th colSpan="2">RMKCET</th>
-                          <th colSpan="2">Schools</th>
-                          <th colSpan="2">Total Issued</th>
-                          <th colSpan="2">Closing Stock</th>
-                        </tr>
-                        <tr>
-                          <th>Quantity</th>
-                          <th>Amount (₹)</th>
-                          <th>Quantity</th>
-                          <th>Amount (₹)</th>
-                          <th>Quantity</th>
-                          <th>Amount (₹)</th>
-                          <th>Quantity</th>
-                          <th>Amount (₹)</th>
-                          <th>Quantity</th>
-                          <th>Amount (₹)</th>
-                          <th>Quantity</th>
-                          <th>Amount (₹)</th>
-                          <th>Quantity</th>
-                          <th>Amount (₹)</th>
+                          <th style={{ width: '20%' }}>Period</th>
+                          <th>RMKEC</th>
+                          <th>RMDEC</th>
+                          <th>RMKCET</th>
+                          <th>Schools</th>
+                          <th>Total Issued</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -806,20 +810,11 @@ export const ItemReport = forwardRef(({ fromDate, toDate, fromDate1, toDate1, fr
                           <td style={{ textAlign: 'left', fontWeight: 'bold', backgroundColor: '#f1f5f9' }}>
                             Period 1 ({p1Label})
                           </td>
-                          <td>{formatNumber(p1.Purchased_quantity)}</td>
-                          <td>{formatNumber(p1.Purchased_amount)}</td>
-                          <td>{formatNumber(p1.RMK_quantity)}</td>
-                          <td>{formatNumber(p1.RMK_amount)}</td>
-                          <td>{formatNumber(p1.RMD_quantity)}</td>
-                          <td>{formatNumber(p1.RMD_amount)}</td>
-                          <td>{formatNumber(p1.RMKCET_quantity)}</td>
-                          <td>{formatNumber(p1.RMKCET_amount)}</td>
-                          <td>{formatNumber(p1.RMKSCHOOL_quantity)}</td>
-                          <td>{formatNumber(p1.RMKSCHOOL_amount)}</td>
-                          <td>{formatNumber(p1.Issued_quantity)}</td>
-                          <td>{formatNumber(p1.Issued_amount)}</td>
-                          <td>{formatNumber(p1.Closing_quantity)}</td>
-                          <td>{formatNumber(p1.Closing_amount)}</td>
+                          <td>{formatNumber(p1RMK)}</td>
+                          <td>{formatNumber(p1RMD)}</td>
+                          <td>{formatNumber(p1RMKCET)}</td>
+                          <td>{formatNumber(p1School)}</td>
+                          <td>{formatNumber(p1Total)}</td>
                         </tr>
 
                         {/* Period 2 Row */}
@@ -827,76 +822,41 @@ export const ItemReport = forwardRef(({ fromDate, toDate, fromDate1, toDate1, fr
                           <td style={{ textAlign: 'left', fontWeight: 'bold', backgroundColor: '#f1f5f9' }}>
                             Period 2 ({p2Label})
                           </td>
-                          <td>{formatNumber(p2.Purchased_quantity)}</td>
-                          <td>{formatNumber(p2.Purchased_amount)}</td>
-                          <td>{formatNumber(p2.RMK_quantity)}</td>
-                          <td>{formatNumber(p2.RMK_amount)}</td>
-                          <td>{formatNumber(p2.RMD_quantity)}</td>
-                          <td>{formatNumber(p2.RMD_amount)}</td>
-                          <td>{formatNumber(p2.RMKCET_quantity)}</td>
-                          <td>{formatNumber(p2.RMKCET_amount)}</td>
-                          <td>{formatNumber(p2.RMKSCHOOL_quantity)}</td>
-                          <td>{formatNumber(p2.RMKSCHOOL_amount)}</td>
-                          <td>{formatNumber(p2.Issued_quantity)}</td>
-                          <td>{formatNumber(p2.Issued_amount)}</td>
-                          <td>{formatNumber(p2.Closing_quantity)}</td>
-                          <td>{formatNumber(p2.Closing_amount)}</td>
+                          <td>{formatNumber(p2RMK)}</td>
+                          <td>{formatNumber(p2RMD)}</td>
+                          <td>{formatNumber(p2RMKCET)}</td>
+                          <td>{formatNumber(p2School)}</td>
+                          <td>{formatNumber(p2Total)}</td>
                         </tr>
 
-                        {/* Variance Row */}
+                        {/* Difference Row */}
                         <tr style={{ backgroundColor: '#e2e8f0', fontWeight: 'bold' }}>
                           <td style={{ textAlign: 'left' }}>
-                            <strong>Variance (Period 2 - Period 1)</strong>
+                            <strong>Difference (Period 2 - Period 1)</strong>
                           </td>
-                          <td style={{ color: Number(p2.Purchased_quantity || 0) >= Number(p1.Purchased_quantity || 0) ? '#059669' : '#dc2626' }}>
-                            {formatNumber(Number(p2.Purchased_quantity || 0) - Number(p1.Purchased_quantity || 0))}
-                          </td>
-                          <td style={{ color: Number(p2.Purchased_amount || 0) >= Number(p1.Purchased_amount || 0) ? '#059669' : '#dc2626' }}>
-                            {formatNumber(Number(p2.Purchased_amount || 0) - Number(p1.Purchased_amount || 0))}
-                          </td>
-                          <td>{formatNumber(Number(p2.RMK_quantity || 0) - Number(p1.RMK_quantity || 0))}</td>
-                          <td>{formatNumber(Number(p2.RMK_amount || 0) - Number(p1.RMK_amount || 0))}</td>
-                          <td>{formatNumber(Number(p2.RMD_quantity || 0) - Number(p1.RMD_quantity || 0))}</td>
-                          <td>{formatNumber(Number(p2.RMD_amount || 0) - Number(p1.RMD_amount || 0))}</td>
-                          <td>{formatNumber(Number(p2.RMKCET_quantity || 0) - Number(p1.RMKCET_quantity || 0))}</td>
-                          <td>{formatNumber(Number(p2.RMKCET_amount || 0) - Number(p1.RMKCET_amount || 0))}</td>
-                          <td>{formatNumber(Number(p2.RMKSCHOOL_quantity || 0) - Number(p1.RMKSCHOOL_quantity || 0))}</td>
-                          <td>{formatNumber(Number(p2.RMKSCHOOL_amount || 0) - Number(p1.RMKSCHOOL_amount || 0))}</td>
-                          <td style={{ color: Number(p2.Issued_quantity || 0) >= Number(p1.Issued_quantity || 0) ? '#059669' : '#dc2626' }}>
-                            {formatNumber(Number(p2.Issued_quantity || 0) - Number(p1.Issued_quantity || 0))}
-                          </td>
-                          <td style={{ color: Number(p2.Issued_amount || 0) >= Number(p1.Issued_amount || 0) ? '#059669' : '#dc2626' }}>
-                            {formatNumber(Number(p2.Issued_amount || 0) - Number(p1.Issued_amount || 0))}
-                          </td>
-                          <td>{formatNumber(Number(p2.Closing_quantity || 0) - Number(p1.Closing_quantity || 0))}</td>
-                          <td>{formatNumber(Number(p2.Closing_amount || 0) - Number(p1.Closing_amount || 0))}</td>
+                          <td style={{ color: diffColor(diffRMK) }}>{formatNumber(diffRMK)}</td>
+                          <td style={{ color: diffColor(diffRMD) }}>{formatNumber(diffRMD)}</td>
+                          <td style={{ color: diffColor(diffRMKCET) }}>{formatNumber(diffRMKCET)}</td>
+                          <td style={{ color: diffColor(diffSchool) }}>{formatNumber(diffSchool)}</td>
+                          <td style={{ color: diffColor(diffTotal) }}>{formatNumber(diffTotal)}</td>
                         </tr>
                       </tbody>
                     </ItemTable>
                   </TableWrapper>
 
-                  {/* Quick Summary Cards */}
+                  {/* Quantity-based Summary Cards */}
                   <SummaryCardsGrid>
                     <SummaryCard color="#2563eb">
-                      <h4>Period 1 Purchase Total</h4>
-                      <p>₹{formatNumber(p1.Purchased_amount)}</p>
-                      <span>{formatNumber(p1.Purchased_quantity)} units / kg</span>
+                      <h4>Period 1 Total Issued</h4>
+                      <p>{formatNumber(p1Total)} units</p>
                     </SummaryCard>
                     <SummaryCard color="#0891b2">
-                      <h4>Period 2 Purchase Total</h4>
-                      <p>₹{formatNumber(p2.Purchased_amount)}</p>
-                      <span>{formatNumber(p2.Purchased_quantity)} units / kg</span>
+                      <h4>Period 2 Total Issued</h4>
+                      <p>{formatNumber(p2Total)} units</p>
                     </SummaryCard>
-                    <SummaryCard color={Number(p2.Purchased_amount || 0) - Number(p1.Purchased_amount || 0) >= 0 ? '#059669' : '#e11d48'}>
-                      <h4>Purchase Value Variance</h4>
-                      <p>
-                        {Number(p2.Purchased_amount || 0) - Number(p1.Purchased_amount || 0) >= 0 ? '+' : ''}
-                        ₹{formatNumber(Number(p2.Purchased_amount || 0) - Number(p1.Purchased_amount || 0))}
-                      </p>
-                      <span>
-                        {Number(p2.Purchased_quantity || 0) - Number(p1.Purchased_quantity || 0) >= 0 ? '+' : ''}
-                        {formatNumber(Number(p2.Purchased_quantity || 0) - Number(p1.Purchased_quantity || 0))} units
-                      </span>
+                    <SummaryCard color={diffTotal >= 0 ? '#059669' : '#e11d48'}>
+                      <h4>Total Issued Difference</h4>
+                      <p>{diffTotal >= 0 ? '+' : ''}{formatNumber(diffTotal)} units</p>
                     </SummaryCard>
                   </SummaryCardsGrid>
                 </ItemSection>
