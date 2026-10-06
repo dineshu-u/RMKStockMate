@@ -1,10 +1,11 @@
-import React, { useState, useEffect,useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import styled from 'styled-components';
-import { FaSearch, FaEdit, FaTrash } from 'react-icons/fa';
+import { FaSearch, FaEdit, FaTrash, FaTimes } from 'react-icons/fa';
 import { useReactToPrint } from 'react-to-print';
 import { FaPrint } from 'react-icons/fa';
 import Logo from '../assets/Logo.png';
+
 const PrintButton = styled.button`
   align-self: flex-end;
   margin-bottom: 20px;
@@ -22,6 +23,7 @@ const PrintButton = styled.button`
     background-color: #0d3449;
   }
 `;
+
 const PrintHeader = styled.div`
   display: none;
   margin-bottom: 20px;
@@ -109,17 +111,57 @@ const Button = styled.button`
 `;
 
 const ButtonContainer = styled.div`
-  display: flex; /* Use flexbox for button alignment */
-  align-items: center; /* Center buttons vertically */
+  display: flex;
+  align-items: center;
 `;
 
-const FormContainer = styled.div`
-  background: #f9f9f9;
-  padding: 20px;
+const ModalOverlay = styled.div`
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+`;
+
+const Modal = styled.div`
+  background: #fff;
+  padding: 24px;
   border-radius: 8px;
-  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
   max-width: 500px;
-  margin: 20px auto;
+  width: 90%;
+  max-height: 90vh;
+  overflow-y: auto;
+`;
+
+const ModalHeader = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 12px;
+`;
+
+const ModalTitle = styled.h2`
+  margin: 0;
+  color: #164863;
+`;
+
+const CloseButton = styled.button`
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #666;
+  &:hover {
+    color: #164863;
+  }
 `;
 
 const FormField = styled.div`
@@ -130,6 +172,7 @@ const FormLabel = styled.label`
   display: block;
   margin-bottom: 5px;
   color: #333;
+  font-weight: 500;
 `;
 
 const FormInput = styled.input`
@@ -138,6 +181,7 @@ const FormInput = styled.input`
   border: 1px solid #ddd;
   border-radius: 4px;
   transition: border-color 0.3s;
+  box-sizing: border-box;
 
   &:focus {
     border-color: #164863;
@@ -145,21 +189,23 @@ const FormInput = styled.input`
   }
 `;
 
+const SubmitButton = styled(Button)`
+  width: 100%;
+  justify-content: center;
+  margin-top: 10px;
+`;
+
 const VendorList = () => {
   const [vendors, setVendors] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [isEditing, setIsEditing] = useState(false);
-  const [isAdding, setIsAdding] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [currentVendor, setCurrentVendor] = useState({});
   const componentRef = useRef();
 
   const handlePrint = useReactToPrint({
     content: () => componentRef.current,
   });
-
-  if (!event) {
-    return <p>Loading...</p>;
-  }
 
   useEffect(() => {
     axios.get(`${import.meta.env.VITE_RMK_MESS_URL}/event/vendors`)
@@ -187,7 +233,7 @@ const VendorList = () => {
 
   const handleEditClick = (vendor) => {
     setCurrentVendor(vendor);
-    setIsEditing(true);
+    setIsEditModalOpen(true);
   };
 
   const handleEditChange = (e) => {
@@ -200,12 +246,12 @@ const VendorList = () => {
 
   const handleUpdateVendor = (e) => {
     e.preventDefault();
-    axios.put(`${import .meta.env.VITE_RMK_MESS_URL}/event/vendors/${currentVendor.id}`, currentVendor)
+    axios.put(`${import.meta.env.VITE_RMK_MESS_URL}/event/vendors/${currentVendor.id}`, currentVendor)
       .then(() => {
-        setVendors(vendors.map(vendor => 
+        setVendors(vendors.map(vendor =>
           vendor.id === currentVendor.id ? currentVendor : vendor
         ));
-        setIsEditing(false);
+        setIsEditModalOpen(false);
       })
       .catch(error => {
         console.error('Error updating vendor:', error);
@@ -213,8 +259,8 @@ const VendorList = () => {
   };
 
   const handleAddClick = () => {
-    setIsAdding(true);
-    setCurrentVendor({});
+    setCurrentVendor({ name: '', address: '', license_no: '', validity: '' });
+    setIsAddModalOpen(true);
   };
 
   const handleAddChange = (e) => {
@@ -230,11 +276,17 @@ const VendorList = () => {
     axios.post(`${import.meta.env.VITE_RMK_MESS_URL}/event/vendors`, currentVendor)
       .then(response => {
         setVendors([...vendors, { ...currentVendor, id: response.data.id }]);
-        setIsAdding(false);
+        setIsAddModalOpen(false);
       })
       .catch(error => {
         console.error('Error adding vendor:', error);
       });
+  };
+
+  const closeModals = () => {
+    setIsEditModalOpen(false);
+    setIsAddModalOpen(false);
+    setCurrentVendor({});
   };
 
   return (
@@ -252,14 +304,14 @@ const VendorList = () => {
         </div>
       </PrintHeader>
       <Title>Vendor List</Title>
-      <SearchInput 
-        type="text" 
-        placeholder="Search vendors..." 
+      <SearchInput
+        type="text"
+        placeholder="Search vendors..."
         value={searchTerm}
         onChange={(e) => setSearchTerm(e.target.value)}
       />
       <Button onClick={handleAddClick}>Add Vendor</Button>
-      
+
       <Table>
         <thead>
           <tr>
@@ -292,108 +344,117 @@ const VendorList = () => {
         </tbody>
       </Table>
 
-      {isEditing && (
-        <FormContainer>
-          <h2>Edit Vendor</h2>
-          <form onSubmit={handleUpdateVendor}>
-            <FormField>
-              <FormLabel>Name:</FormLabel>
-              <FormInput
-                type="text"
-                name="name"
-                value={currentVendor.name}
-                onChange={handleEditChange}
-                required
-              />
-            </FormField>
-            <FormField>
-              <FormLabel>Address:</FormLabel>
-              <FormInput
-                type="text"
-                name="address"
-                value={currentVendor.address}
-                onChange={handleEditChange}
-                required
-              />
-            </FormField>
-            <FormField>
-              <FormLabel>License No:</FormLabel>
-              <FormInput
-                type="text"
-                name="license_no"
-                value={currentVendor.license_no}
-                onChange={handleEditChange}
-                required
-              />
-            </FormField>
-            <FormField>
-              <FormLabel>Validity:</FormLabel>
-              <FormInput
-                type="text"
-                name="validity"
-                value={currentVendor.validity}
-                onChange={handleEditChange}
-                placeholder="YYYY-MM-DD to YYYY-MM-DD"
-                required
-              />
-            </FormField>
-            <Button type="submit">Update Vendor</Button>
-          </form>
-        </FormContainer>
+      {isEditModalOpen && (
+        <ModalOverlay onClick={closeModals}>
+          <Modal onClick={(e) => e.stopPropagation()}>
+            <ModalHeader>
+              <ModalTitle>Edit Vendor</ModalTitle>
+              <CloseButton onClick={closeModals}><FaTimes /></CloseButton>
+            </ModalHeader>
+            <form onSubmit={handleUpdateVendor}>
+              <FormField>
+                <FormLabel>Name:</FormLabel>
+                <FormInput
+                  type="text"
+                  name="name"
+                  value={currentVendor.name || ''}
+                  onChange={handleEditChange}
+                  required
+                />
+              </FormField>
+              <FormField>
+                <FormLabel>Address:</FormLabel>
+                <FormInput
+                  type="text"
+                  name="address"
+                  value={currentVendor.address || ''}
+                  onChange={handleEditChange}
+                  required
+                />
+              </FormField>
+              <FormField>
+                <FormLabel>License No:</FormLabel>
+                <FormInput
+                  type="text"
+                  name="license_no"
+                  value={currentVendor.license_no || ''}
+                  onChange={handleEditChange}
+                  required
+                />
+              </FormField>
+              <FormField>
+                <FormLabel>Validity:</FormLabel>
+                <FormInput
+                  type="text"
+                  name="validity"
+                  value={currentVendor.validity || ''}
+                  onChange={handleEditChange}
+                  placeholder="YYYY-MM-DD to YYYY-MM-DD"
+                  required
+                />
+              </FormField>
+              <SubmitButton type="submit">Update Vendor</SubmitButton>
+            </form>
+          </Modal>
+        </ModalOverlay>
       )}
 
-      {isAdding && (
-        <FormContainer>
-          <h2>Add Vendor</h2>
-          <form onSubmit={handleAddVendor}>
-            <FormField>
-              <FormLabel>Name:</FormLabel>
-              <FormInput
-                type="text"
-                name="name"
-                value={currentVendor.name || ''}
-                onChange={handleAddChange}
-                required
-              />
-            </FormField>
-            <FormField>
-              <FormLabel>Address:</FormLabel>
-              <FormInput
-                type="text"
-                name="address"
-                value={currentVendor.address || ''}
-                onChange={handleAddChange}
-                required
-              />
-            </FormField>
-            <FormField>
-              <FormLabel>License No :</FormLabel>
-              <FormInput
-                type="text"
-                name="license_no"
-                value={currentVendor.license_no || ''}
-                onChange={handleAddChange}
-                required
-              />
-            </FormField>
-            <FormField>
-              <FormLabel>Validity:</FormLabel>
-              <FormInput
-                type="text"
-                name="validity"
-                value={currentVendor.validity || ''}
-                onChange={handleAddChange}
-                placeholder="YYYY-MM-DD to YYYY-MM-DD"
-                required
-              />
-            </FormField>
-            <Button type="submit">Add Vendor</Button>
-          </form>
-        </FormContainer>
+      {isAddModalOpen && (
+        <ModalOverlay onClick={closeModals}>
+          <Modal onClick={(e) => e.stopPropagation()}>
+            <ModalHeader>
+              <ModalTitle>Add Vendor</ModalTitle>
+              <CloseButton onClick={closeModals}><FaTimes /></CloseButton>
+            </ModalHeader>
+            <form onSubmit={handleAddVendor}>
+              <FormField>
+                <FormLabel>Name:</FormLabel>
+                <FormInput
+                  type="text"
+                  name="name"
+                  value={currentVendor.name || ''}
+                  onChange={handleAddChange}
+                  required
+                />
+              </FormField>
+              <FormField>
+                <FormLabel>Address:</FormLabel>
+                <FormInput
+                  type="text"
+                  name="address"
+                  value={currentVendor.address || ''}
+                  onChange={handleAddChange}
+                  required
+                />
+              </FormField>
+              <FormField>
+                <FormLabel>License No :</FormLabel>
+                <FormInput
+                  type="text"
+                  name="license_no"
+                  value={currentVendor.license_no || ''}
+                  onChange={handleAddChange}
+                  required
+                />
+              </FormField>
+              <FormField>
+                <FormLabel>Validity:</FormLabel>
+                <FormInput
+                  type="text"
+                  name="validity"
+                  value={currentVendor.validity || ''}
+                  onChange={handleAddChange}
+                  placeholder="YYYY-MM-DD to YYYY-MM-DD"
+                  required
+                />
+              </FormField>
+              <SubmitButton type="submit">Add Vendor</SubmitButton>
+            </form>
+          </Modal>
+        </ModalOverlay>
       )}
     </Container>
     </>
-
   );
 };
 

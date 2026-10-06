@@ -257,6 +257,38 @@ const PrintItemReport = () => {
   const [message, setMessage] = useState('Please find attached the Item-Wise Period Comparison Report.');
   const [isSending, setIsSending] = useState(false);
 
+  // Get current dates and items from ItemReport via ref
+  const getReportData = () => {
+    if (reportRef.current && typeof reportRef.current.getCurrentDates === 'function') {
+      return reportRef.current.getCurrentDates();
+    }
+    // Fallback to location state if ref not ready
+    return {
+      f1: fromDate1,
+      t1: toDate1,
+      f2: fromDate2,
+      t2: toDate2,
+      monthlyView: false
+    };
+  };
+
+  const getSelectedItems = () => {
+    if (reportRef.current && typeof reportRef.current.getSelectedItems === 'function') {
+      return reportRef.current.getSelectedItems();
+    }
+    // Fallback to DOM parsing
+    if (!reportRef.current) return [];
+    const chips = reportRef.current.querySelectorAll('.item-section');
+    const items = [];
+    chips.forEach(chip => {
+      const h2 = chip.querySelector('h2');
+      if (h2 && h2.textContent.startsWith('Item: ')) {
+        items.push(h2.textContent.replace('Item: ', '').trim());
+      }
+    });
+    return items;
+  };
+
   const handleExport = () => {
     if (!reportRef.current) return;
     const tables = reportRef.current.querySelectorAll('table');
@@ -277,19 +309,6 @@ const PrintItemReport = () => {
     return regex.test(email);
   };
 
-  const getSelectedItems = () => {
-    if (!reportRef.current) return [];
-    const chips = reportRef.current.querySelectorAll('.item-section');
-    const items = [];
-    chips.forEach(chip => {
-      const h2 = chip.querySelector('h2');
-      if (h2 && h2.textContent.startsWith('Item: ')) {
-        items.push(h2.textContent.replace('Item: ', '').trim());
-      }
-    });
-    return items;
-  };
-
   const handleSendReport = async () => {
     if (!validateEmail(recipientEmail.trim())) {
       toast.error('Please enter a valid email address');
@@ -302,7 +321,10 @@ const PrintItemReport = () => {
       return;
     }
 
-    if (!fromDate1 || !toDate1 || !fromDate2 || !toDate2) {
+    const reportData = getReportData();
+    const { f1, t1, f2, t2, monthlyView } = reportData;
+
+    if (!f1 || !t1 || !f2 || !t2) {
       toast.error('Date ranges not available');
       return;
     }
@@ -315,10 +337,11 @@ const PrintItemReport = () => {
         subject: subject.trim(),
         message: message.trim(),
         items: selectedItems.join(','),
-        fdate1: fromDate1,
-        tdate1: toDate1,
-        fdate2: fromDate2,
-        tdate2: toDate2
+        fdate1: f1,
+        tdate1: t1,
+        fdate2: f2,
+        tdate2: t2,
+        monthly: monthlyView
       };
 
       await axios.post(`${import.meta.env.VITE_RMK_MESS_URL}/item/send-report`, params);
@@ -345,7 +368,12 @@ const PrintItemReport = () => {
     setMessage('Please find attached the Item-Wise Period Comparison Report.');
   };
 
-  const attachmentFileName = `RMKStockMate_Item_Wise_Comparison_${fromDate1 || 'period1'}_to_${toDate2 || 'period2'}.pdf`;
+  const attachmentFileName = (() => {
+    const reportData = getReportData();
+    const f1 = reportData.f1 || 'period1';
+    const t2 = reportData.t2 || 'period2';
+    return `RMKStockMate_Item_Wise_Comparison_${f1}_to_${t2}.pdf`;
+  })();
 
   return (
     <Test>
