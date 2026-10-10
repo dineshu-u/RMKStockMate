@@ -4,7 +4,9 @@ import styled from 'styled-components';
 import { useLocation } from 'react-router-dom';
 import { saveAs } from 'file-saver';
 import * as XLSX from 'xlsx';
+import dayjs from 'dayjs';
 import { CategoryComparison } from './CategoryComparison';
+import { SendReportButton } from './SendReportButton';
 
 const Test = styled.div`
   height: 100%;
@@ -79,7 +81,7 @@ const ExportButton = styled.button`
 const PrintCategoryComparison = () => {
   const reportRef = useRef();
   const location = useLocation();
-  const { fromDate, toDate } = location.state || {};
+  const { fromDate, toDate, fromDate1, toDate1, fromDate2, toDate2 } = location.state || {};
 
   const handleExport = () => {
     const ws = XLSX.utils.table_to_sheet(reportRef.current.querySelector('table'));
@@ -89,6 +91,23 @@ const PrintCategoryComparison = () => {
     saveAs(new Blob([wbout], { type: 'application/octet-stream' }), 'CategoryComparison_Report.xlsx');
   };
 
+  const pdfFileName = fromDate1 && toDate2
+    ? `RMKStockMate_Category_Comparison_Report_${fromDate1}_to_${toDate2}.pdf`
+    : 'RMKStockMate_Category_Comparison_Report.pdf';
+
+  // Must mirror the date fallback inside CategoryComparison so the emailed
+  // PDF is generated from the same periods that are displayed on screen.
+  const defaultF1 = dayjs().subtract(1, 'month').startOf('month').format('YYYY-MM-DD');
+  const defaultT1 = dayjs().subtract(1, 'month').startOf('month').add(3, 'day').format('YYYY-MM-DD');
+  const defaultF2 = dayjs().startOf('month').format('YYYY-MM-DD');
+  const defaultT2 = dayjs().startOf('month').add(3, 'day').format('YYYY-MM-DD');
+
+  const emailParams = (fromDate1 && toDate1 && fromDate2 && toDate2)
+    ? { fromDate1, toDate1, fromDate2, toDate2 }
+    : (fromDate && toDate)
+      ? { fromDate, toDate }
+      : { fromDate1: defaultF1, toDate1: defaultT1, fromDate2: defaultF2, toDate2: defaultT2 };
+
   return (
     <Test>
       <ButtonContainer>
@@ -97,6 +116,13 @@ const PrintCategoryComparison = () => {
           content={() => reportRef.current}
         />
         <ExportButton onClick={handleExport}>Export to Excel</ExportButton>
+        <SendReportButton
+          reportType="categorycomparison"
+          params={emailParams}
+          fileName={pdfFileName}
+          defaultSubject="RMKStockMate - Category Comparison Report"
+          defaultMessage="Please find attached the Category Comparison Report."
+        />
       </ButtonContainer>
       <ReportContainer>
         <CategoryComparison ref={reportRef} fromDate={fromDate} toDate={toDate}/>

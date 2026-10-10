@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './Dashboard.css';
-import DashboardBarGraph from './DashboardBarGraph';
 import DashboardLineChart from './DashboardLineChart';
-import DashboardBarGraph2 from './DashboardPieChart';
 import DashboardPieChart from './DashboardPieChart';
 function DashBoard() {
     const [barGraphData, setBarGraphData] = useState([]);

@@ -13,7 +13,7 @@ const Button = styled.div`
   border-radius: 100%;
   cursor: pointer;
   z-index: 1000;
-  display: ${({ isVisible }) => (isVisible ? 'block' : 'none')};
+  display: ${({ $isVisible }) => ($isVisible ? 'block' : 'none')};
   transition: opacity 0.3s, transform 0.3s;
 
   &:hover {
@@ -55,7 +55,7 @@ const BackToTopButton = () => {
   }, []);
 
   return (
-    <Button isVisible={isVisible} onClick={scrollToTop}>
+    <Button $isVisible={isVisible} onClick={scrollToTop}>
       <Image src={arrow} alt="Back to Top"  />
     </Button>
   );

@@ -1,6 +1,5 @@
 import React from "react";
 import styled from "styled-components";
-import dayjs from "dayjs";
 import {
   LineChart,
   Line,

@@ -43,44 +43,53 @@ router.get('/report', async (req, res) => {
       });
     }
 
-    // Case 2: Month-by-month Comparison (spans across any date/year range safely)
+    // Case 2: Month-by-month Comparison
     const fromStr = fdate || new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0];
     const toStr = tdate || new Date().toISOString().split('T')[0];
 
     const startDate = new Date(fromStr);
     const endDate = new Date(toStr);
+
+    if (startDate > endDate) {
+      return res.status(400).json({ error: 'To date must be after From date' });
+    }
+
     const months = [];
     const monthColumns = [];
 
-    // Safely iterate from start date month to end date month across years
-    let curr = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
-    const end = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
+    const startMonth = isNaN(startDate.getMonth()) ? 0 : startDate.getMonth();
+    const endMonth = isNaN(endDate.getMonth()) ? 11 : endDate.getMonth();
+    const startYear = isNaN(startDate.getFullYear()) ? new Date().getFullYear() : startDate.getFullYear();
+    const endYear = isNaN(endDate.getFullYear()) ? startYear : endDate.getFullYear();
 
-    while (curr <= end) {
-      const monthName = curr.toLocaleString('default', { month: 'long' });
-      const monthNum = curr.getMonth() + 1;
-      const yearNum = curr.getFullYear();
-      
-      const colAlias = `${monthName}_${yearNum}`;
-      months.push(colAlias);
-
-      monthColumns.push(`
-        COALESCE(SUM(CASE WHEN MONTH(p.date) = ${monthNum} AND YEAR(p.date) = ${yearNum} THEN p.quantity ELSE 0 END), 0) AS ${colAlias}_quantity,
-        COALESCE(SUM(CASE WHEN MONTH(p.date) = ${monthNum} AND YEAR(p.date) = ${yearNum} THEN p.amount ELSE 0 END), 0) AS ${colAlias}_amount
+    if (startYear === endYear) {
+      for (let m = startMonth; m <= endMonth; m++) {
+        const monthName = new Date(startYear, m, 1).toLocaleString('default', { month: 'long' });
+        months.push(monthName);
+        monthColumns.push(`
+        COALESCE(SUM(CASE WHEN MONTH(p.date) = ${m + 1} THEN p.quantity ELSE 0 END), 0) AS ${monthName}_quantity,
+        COALESCE(SUM(CASE WHEN MONTH(p.date) = ${m + 1} THEN p.amount ELSE 0 END), 0) AS ${monthName}_amount
       `);
-
-      curr.setMonth(curr.getMonth() + 1);
+      }
+    } else {
+      // Walk month by month across year boundaries; label with the year so column aliases stay unique
+      const cursor = new Date(startYear, startMonth, 1);
+      while (cursor.getFullYear() < endYear || (cursor.getFullYear() === endYear && cursor.getMonth() <= endMonth)) {
+        const y = cursor.getFullYear();
+        const m = cursor.getMonth();
+        const monthName = new Date(y, m, 1).toLocaleString('default', { month: 'long' });
+        const label = `${monthName} ${y}`;
+        months.push(label);
+        monthColumns.push(`
+        COALESCE(SUM(CASE WHEN YEAR(p.date) = ${y} AND MONTH(p.date) = ${m + 1} THEN p.quantity ELSE 0 END), 0) AS \`${label}_quantity\`,
+        COALESCE(SUM(CASE WHEN YEAR(p.date) = ${y} AND MONTH(p.date) = ${m + 1} THEN p.amount ELSE 0 END), 0) AS \`${label}_amount\`
+      `);
+        cursor.setMonth(cursor.getMonth() + 1);
+      }
     }
 
-    // If for any reason no months matched, fallback to current month
-    if (monthColumns.length === 0) {
-      const monthName = new Date().toLocaleString('default', { month: 'long' });
-      const monthNum = new Date().getMonth() + 1;
-      months.push(monthName);
-      monthColumns.push(`
-        COALESCE(SUM(CASE WHEN MONTH(p.date) = ${monthNum} THEN p.quantity ELSE 0 END), 0) AS ${monthName}_quantity,
-        COALESCE(SUM(CASE WHEN MONTH(p.date) = ${monthNum} THEN p.amount ELSE 0 END), 0) AS ${monthName}_amount
-      `);
+    if (months.length > 24) {
+      return res.status(400).json({ error: 'Date range spans too many months (max 24)' });
     }
 
     const sqlQuery = `

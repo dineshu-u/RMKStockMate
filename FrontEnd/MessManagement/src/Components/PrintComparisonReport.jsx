@@ -2,6 +2,7 @@ import React, { useRef } from 'react';
 import ReactToPrint from 'react-to-print';
 import styled from 'styled-components';
 import { ComparisonReport } from './ComparisonReport';
+import { SendReportButton } from './SendReportButton';
 import { useLocation } from 'react-router-dom';
 import { saveAs } from 'file-saver';
 import * as XLSX from 'xlsx';
@@ -62,7 +63,7 @@ const ExportButton = styled.button`
 const PrintComparisonReport = () => {
   const reportRef = useRef();
   const location = useLocation();
-  const { fromDate, toDate } = location.state || {};
+  const { fromDate, toDate, fromDate1, toDate1, fromDate2, toDate2 } = location.state || {};
 
   const handleExport = () => {
     if (!reportRef.current) return;
@@ -75,6 +76,10 @@ const PrintComparisonReport = () => {
     saveAs(new Blob([wbout], { type: 'application/octet-stream' }), 'Comparison_Report.xlsx');
   };
 
+  const pdfFileName = fromDate1 && toDate2
+    ? `RMKStockMate_Comparison_Report_${fromDate1}_to_${toDate2}.pdf`
+    : 'RMKStockMate_Comparison_Report.pdf';
+
   return (
     <Test>
       <ButtonContainer>
@@ -83,6 +88,13 @@ const PrintComparisonReport = () => {
           content={() => reportRef.current}
         />
         <ExportButton onClick={handleExport}>Export to Excel</ExportButton>
+        <SendReportButton
+          reportType="comparison"
+          params={{ fromDate, toDate, fromDate1, toDate1, fromDate2, toDate2 }}
+          fileName={pdfFileName}
+          defaultSubject="RMKStockMate - Comparison Report"
+          defaultMessage="Please find attached the Comparison Report."
+        />
       </ButtonContainer>
       <ReportContainer>
         <ComparisonReport ref={reportRef} fromDate={fromDate} toDate={toDate} />

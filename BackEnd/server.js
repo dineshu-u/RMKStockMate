@@ -16,6 +16,7 @@ const compareItem = require('./Routes/Comparison');
 const graphItem = require('./Routes/graph');
 const Itemwise = require('./Routes/ItemWise');
 const Event = require('./Routes/event');
+const emailReport = require('./Routes/emailReport');
 const db = require('./db');
 app.use(cors());
 app.use(express.json());
@@ -31,6 +32,7 @@ app.use('/categorycomparison',categorycomp);
 app.use('/item',Itemwise);
 app.use('/event',Event);
 app.use('/graph',graphItem);
+app.use('/email',emailReport);
 const JWT_SECRET = 'rmkecmessmanagement-IT-2022-2026';
 
 app.post('/login', (req, res) => {

@@ -2,6 +2,7 @@ import React, { useRef } from 'react';
 import ReactToPrint from 'react-to-print';
 import { useLocation } from 'react-router-dom';
 import { MonthlyReport } from './MonthlyReport'; 
+import { SendReportButton } from './SendReportButton';
 import styled from 'styled-components';
 import { saveAs } from 'file-saver';
 import * as XLSX from 'xlsx';
@@ -103,6 +104,13 @@ const PrintMonthlyReport = () => {
           content={() => reportRef.current}
         />
         <ExportButton onClick={handleExport}>Export to Excel</ExportButton>
+        <SendReportButton
+          reportType="monthly"
+          params={{ fromDate, toDate }}
+          fileName={fromDate && toDate ? `RMKStockMate_Monthly_Report_${fromDate}_to_${toDate}.pdf` : 'RMKStockMate_Monthly_Report.pdf'}
+          defaultSubject="RMKStockMate - Monthly Report"
+          defaultMessage="Please find attached the Monthly Report."
+        />
       </ButtonContainer>
       <ReportContainer>
         <MonthlyReport ref={reportRef} fromDate={fromDate} toDate={toDate} />

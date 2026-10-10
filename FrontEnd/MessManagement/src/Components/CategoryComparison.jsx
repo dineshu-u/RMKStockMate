@@ -220,7 +220,7 @@ export const CategoryComparison = React.forwardRef(({ fromDate, toDate, fromDate
     <Container ref={ref} className="print-container">
       <PrintHeader>
         <div className="content">
-          <img src={Logo} alt="College Logo" />
+          <img src={Logo} alt="Logo" />
           <h1>FOOD MANAGEMENT SYSTEM</h1>
         </div>
       </PrintHeader>

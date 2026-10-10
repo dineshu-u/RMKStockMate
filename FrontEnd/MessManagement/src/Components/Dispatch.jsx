@@ -311,7 +311,17 @@ function Dispatch() {
     const lastSno = rows.length > 0 ? rows[rows.length - 1].sno : 0;
     setRows(prevRows => [
       ...prevRows,
-      { id: Date.now(), sno: lastSno + 1, quantity: '', amount: '' }
+      {
+        id: Date.now(),
+        sno: lastSno + 1,
+        item: '',
+        quantity: '',
+        currentQuantity: '',
+        rmk: '',
+        rmd: '',
+        rmkcet: '',
+        school: '',
+      }
     ]);
   };
 

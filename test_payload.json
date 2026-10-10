@@ -1,0 +1,10 @@
+{
+  "recipientEmail": "test@example.com",
+  "subject": "Test",
+  "message": "Test",
+  "items": "GHEE",
+  "fdate1": "2024-01-01",
+  "tdate1": "2024-01-31",
+  "fdate2": "2024-02-01",
+  "tdate2": "2024-02-29"
+}

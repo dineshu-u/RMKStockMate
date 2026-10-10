@@ -2,6 +2,7 @@ import React, { useRef } from 'react';
 import ReactToPrint from 'react-to-print';
 import styled from 'styled-components';
 import { CategoryReport } from './CategoryReport';
+import { SendReportButton } from './SendReportButton';
 import { useLocation } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
@@ -104,6 +105,13 @@ const PrintCategoryReport = () => {
           content={() => reportRef.current}
         />
         <ExportButton onClick={handleExport}>Export to Excel</ExportButton>
+        <SendReportButton
+          reportType="category"
+          params={{ fromDate, toDate }}
+          fileName={fromDate && toDate ? `RMKStockMate_Category_Report_${fromDate}_to_${toDate}.pdf` : 'RMKStockMate_Category_Report.pdf'}
+          defaultSubject="RMKStockMate - Category Report"
+          defaultMessage="Please find attached the Category Report."
+        />
       </ButtonContainer>
       <ReportContainer>
         <CategoryReport ref={reportRef} fromDate={fromDate} toDate={toDate} />

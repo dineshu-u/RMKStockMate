@@ -1,11 +1,17 @@
 const express = require('express');
 const db = require('../db');
-let bodyParser = require('body-parser');
 
 const router = express.Router();
 
 router.get('/report', async (req, res) => {
-    let result = await db.promise().query(`
+    const { fdate, tdate } = req.query;
+
+    if (!fdate || !tdate) {
+        return res.status(400).json({ message: 'Missing required fields: fdate, tdate' });
+    }
+
+    try {
+        const [rows] = await db.promise().query(`
   SELECT 
     p_sub.item, 
     p_sub.purchaseQuantity, 
@@ -13,7 +19,7 @@ router.get('/report', async (req, res) => {
     COALESCE(
         (SELECT quantity 
          FROM closingstock 
-         WHERE date <= '${req.query.fdate}' 
+         WHERE date <= ? 
            AND item = p_sub.item 
          ORDER BY date DESC 
          LIMIT 1), 
@@ -23,13 +29,13 @@ router.get('/report', async (req, res) => {
                 (SELECT AVG(amountKg) 
                  FROM purchase 
                  WHERE item = p_sub.item 
-                   AND DATE_FORMAT(date, '%Y-%m') = DATE_FORMAT(DATE_SUB('${req.query.fdate}', INTERVAL 1 MONTH), '%Y-%m')
-                ), 
+                   AND DATE_FORMAT(date, '%Y-%m') = DATE_FORMAT(DATE_SUB(?, INTERVAL 1 MONTH), '%Y-%m')
+                 ), 
                 0
             ) * COALESCE(
                 (SELECT quantity 
                  FROM closingstock 
-                 WHERE date <= '${req.query.fdate}' 
+                 WHERE date <= ? 
                    AND item = p_sub.item 
                  ORDER BY date DESC 
                  LIMIT 1), 
@@ -48,7 +54,7 @@ FROM (
         SUM(amount) AS purchaseAmount,
         AVG(amountKg) AS amountKg
     FROM purchase 
-    WHERE date BETWEEN '${req.query.fdate}' AND '${req.query.tdate}' 
+    WHERE date BETWEEN ? AND ? 
     GROUP BY item
 ) p_sub
 LEFT JOIN (
@@ -59,15 +65,21 @@ LEFT JOIN (
         SUM(RMKCET) AS RMKCET, 
         SUM(RMKSCHOOL) AS RMKSCHOOL 
     FROM dispatch1 
-    WHERE date BETWEEN '${req.query.fdate}' AND '${req.query.tdate}' 
+    WHERE date BETWEEN ? AND ? 
     GROUP BY item
 ) d_sub
 ON p_sub.item = d_sub.item;
-    `);
+    `, [fdate, fdate, fdate, fdate, tdate, fdate, tdate]);
 
-    console.log(result[0]);
-    
-    res.status(200).send(result[0]);
+    res.status(200).send(rows);
+    } catch (error) {
+        console.error('Error fetching monthly report data:', error);
+        res.status(500).json({
+            message: error && error.message
+                ? `Failed to fetch monthly report: ${error.message}`
+                : 'Failed to fetch monthly report'
+        });
+    }
 });
 
 module.exports = router;
