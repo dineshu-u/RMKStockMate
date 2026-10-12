@@ -18,6 +18,8 @@ import DashBoard from "./Components/Dashboard.jsx";
 import SignupPage from "./Components/SignUp.jsx";
 import PrintCategoryComparison from "./Components/PrintCategoryComparison.jsx";
 import VendorList from "./Components/VendorList.jsx";
+import Attendance from "./Components/Attendance.jsx";
+import PrintAttendanceReport from "./Components/PrintAttendanceReport.jsx";
 function ScrollToTop() {
   const { pathname } = useLocation();
 
@@ -52,6 +54,8 @@ function App() {
             <Route path="eventlist" element={<EventList />} />
             <Route path="eventlist/:eventId" element={<EventDetail/>} /> 
             <Route path="vendors" element={<VendorList/>}/>
+            <Route path="attendance" element={<Attendance />} />
+            <Route path="attendance-report" element={<PrintAttendanceReport />} />
           </Route>
         </Routes>
       </Router>

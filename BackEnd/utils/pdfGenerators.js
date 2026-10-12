@@ -1032,11 +1032,155 @@ async function generateCategorySummaryPDF(reportData, fromDate, toDate) {
   return await docToBuffer(doc);
 }
 
+// ---------------------------------------------------------------------
+// Attendance reports (headcount module). Consumes the exact structures
+// returned by the /attendance/report endpoints so the emailed PDF, the
+// printed report and the on-screen report always agree.
+//   info: { reportType: 'daily' | 'range' | 'monthly', date, from, to,
+//           institutionName, categoryName }
+//   '—'    = applicable category, entry not recorded (incomplete)
+//   'N/A'  = category does not apply to that institution
+// ---------------------------------------------------------------------
+
+function attNum(v) {
+  return v === null || v === undefined ? '—' : Number(v).toLocaleString();
+}
+
+function attChange(v) {
+  if (v === null || v === undefined) return '';
+  return `${v > 0 ? '+' : ''}${Number(v).toLocaleString()}`;
+}
+
+function drawAttendanceNote(doc, reportData) {
+  if (reportData && reportData.complete === false) {
+    doc.moveDown(0.6);
+    doc.fontSize(9).font('Helvetica').fillColor('#dc2626')
+      .text('Note: "—" indicates an entry that has not been recorded. Totals that include unrecorded entries are not final.', { align: 'left' });
+  }
+  doc.moveDown(0.4);
+  doc.fontSize(8).font('Helvetica').fillColor('#64748b')
+    .text('"N/A" = category does not apply to this institution.', { align: 'left' });
+}
+
+async function generateAttendancePDF(reportData, info = {}) {
+  const doc = createDoc(true);
+  const type = info.reportType || 'daily';
+
+  const subtitleMap = {
+    daily: 'Daily Attendance Summary',
+    range: 'Date-Range Attendance Report',
+    monthly: 'Monthly Attendance Summary'
+  };
+  let subtitle = subtitleMap[type] || 'Attendance Report';
+  const filterBits = [];
+  if (info.institutionName) filterBits.push(`Institution: ${info.institutionName}`);
+  if (info.categoryName) filterBits.push(`Category: ${info.categoryName}`);
+  if (filterBits.length) subtitle += `  (${filterBits.join(', ')})`;
+
+  drawHeader(doc, 'ATTENDANCE REPORT', subtitle, {
+    single: type === 'daily' ? info.date : `${info.from || ''} to ${info.to || ''}`
+  });
+
+  const rowAlign = (idx) => (idx === 0 ? 'left' : 'center');
+
+  if (type === 'daily') {
+    const catIds = [];
+    const catNames = {};
+    (reportData.institutions || []).forEach(inst => (inst.categories || []).forEach(cat => {
+      if (catNames[cat.id] === undefined) { catNames[cat.id] = cat.name; catIds.push(cat.id); }
+    }));
+
+    const headers = ['Institution', ...catIds.map(id => catNames[id]), 'Institution Total'];
+    const rows = (reportData.institutions || []).map(inst => ({
+      values: [
+        inst.name,
+        ...catIds.map(id => {
+          const cat = (inst.categories || []).find(c => c.id === id);
+          return cat ? attNum(cat.headcount) : 'N/A';
+        }),
+        attNum(inst.total)
+      ],
+      align: rowAlign
+    }));
+    rows.push({
+      values: [
+        'ALL INSTITUTIONS TOTAL',
+        ...catIds.map(id => {
+          const t = (reportData.categoryTotals || []).find(c => c.id === id);
+          return attNum(t ? t.total : null);
+        }),
+        attNum(reportData.grandTotal)
+      ],
+      isTotal: true,
+      align: rowAlign
+    });
+
+    drawTable(doc, headers, rows, { colWidths: [160, ...catIds.map(() => 95), 120], rowHeight: 26 });
+    drawAttendanceNote(doc, reportData);
+  } else if (type === 'range') {
+    const insts = reportData.institutions || [];
+    const headers = ['Date', ...insts.map(i => i.name), info.categoryName ? `${info.categoryName} Total` : 'Day Total', 'Change'];
+    const rows = (reportData.days || []).map(day => ({
+      values: [day.date, ...day.values.map(v => attNum(v)), attNum(day.total), attChange(day.change)],
+      align: rowAlign
+    }));
+    rows.push({
+      values: ['RANGE TOTAL', ...(reportData.overall.byInstitution || []).map(i => attNum(i.total)), attNum(reportData.overall.grandTotal), ''],
+      isTotal: true,
+      align: rowAlign
+    });
+
+    drawTable(doc, headers, rows, { colWidths: [90, ...insts.map(() => 95), 110, 80], rowHeight: 26 });
+    drawAttendanceNote(doc, { complete: reportData.overall && reportData.overall.complete });
+  } else if (type === 'monthly') {
+    for (const month of reportData.months || []) {
+      if (doc.y > doc.page.height - 260) doc.addPage();
+
+      doc.fontSize(13).font('Helvetica-Bold').fillColor(RMK_DARK).text(month.label || month.month, { align: 'left' });
+      doc.moveDown(0.4);
+
+      const insts = reportData.institutions || [];
+      const dayHeaders = ['Date', ...insts.map(i => i.name), 'Day Total', 'Status'];
+      const dayRows = (month.days || []).map(day => ({
+        values: [day.date, ...day.values.map(v => attNum(v)), attNum(day.total), day.complete ? 'Complete' : 'Incomplete'],
+        align: rowAlign
+      }));
+      drawTable(doc, dayHeaders, dayRows, { colWidths: [80, ...insts.map(() => 90), 100, 90], rowHeight: 24 });
+      doc.moveDown(0.8);
+
+      const sumHeaders = ['Institution', 'Total Headcount', 'Days Recorded'];
+      const sumRows = (month.byInstitution || []).map(i => ({
+        values: [i.name, attNum(i.total), String(i.daysRecorded)],
+        align: rowAlign
+      }));
+      sumRows.push({
+        values: ['ALL INSTITUTIONS TOTAL', attNum(month.grandTotal), `${month.daysRecorded} of ${month.daysExpected}`],
+        isTotal: true,
+        align: rowAlign
+      });
+      drawTable(doc, sumHeaders, sumRows, { colWidths: [220, 160, 160], rowHeight: 24 });
+      doc.moveDown(0.8);
+
+      const catHeaders = ['Category', 'Total'];
+      const catRows = (month.byCategory || []).map(c => ({
+        values: [c.name, attNum(c.total)],
+        align: rowAlign
+      }));
+      drawTable(doc, catHeaders, catRows, { colWidths: [270, 270], rowHeight: 24 });
+      doc.moveDown(1.2);
+    }
+    drawAttendanceNote(doc, { complete: (reportData.months || []).every(m => m.complete) });
+  }
+
+  return await docToBuffer(doc);
+}
+
 module.exports = {
   generateCategoryComparisonPDF,
   generateMonthlyMatrixComparisonPDF,
   generateMonthlyLedgerPDF,
   generateCategorySummaryPDF,
+  generateAttendancePDF,
   drawHeader,
   drawTable,
   createDoc,

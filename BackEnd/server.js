@@ -1,5 +1,6 @@
 const express = require("express");
 const app = express();
+require('dotenv').config();
 const mysql = require("mysql2");
 const cors = require("cors");
 let bodyParser = require('body-parser');
@@ -16,6 +17,7 @@ const compareItem = require('./Routes/Comparison');
 const graphItem = require('./Routes/graph');
 const Itemwise = require('./Routes/ItemWise');
 const Event = require('./Routes/event');
+const attendanceRtr = require('./Routes/Attendance');
 const db = require('./db');
 app.use(cors());
 app.use(express.json());
@@ -31,6 +33,7 @@ app.use('/categorycomparison',categorycomp);
 app.use('/item',Itemwise);
 app.use('/event',Event);
 app.use('/graph',graphItem);
+app.use('/attendance',attendanceRtr);
 const JWT_SECRET = 'rmkecmessmanagement-IT-2022-2026';
 
 app.post('/login', (req, res) => {

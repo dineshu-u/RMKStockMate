@@ -92,6 +92,18 @@ const SideBar = () => {
             Available Stock
           </Link>
         </SidebarItem>
+        {role!=="Viewer" && (<SidebarItem className={isActive('/dashboard/attendance')}>
+          <Link to="attendance">
+            <img src={add} width="40px" height="40px" alt="Attendance" />
+            Attendance
+          </Link>
+        </SidebarItem>)}
+        <SidebarItem className={isActive('/dashboard/attendance-report')}>
+          <Link to="attendance-report">
+            <img src={reports} width="40px" height="40px" alt="Attendance Report" />
+            Attendance Report
+          </Link>
+        </SidebarItem>
         <SidebarItem className={isActive('/dashboard/reports')}>
           <Link to="reports">
             <img src={reports} width="40px" height="40px" alt="Reports" />
