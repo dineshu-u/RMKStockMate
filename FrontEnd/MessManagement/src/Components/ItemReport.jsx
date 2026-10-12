@@ -798,10 +798,7 @@ export const ItemReport = forwardRef(({ fromDate, toDate, fromDate1, toDate1, fr
             </ActionButton>
             <ToggleButton 
               active={monthlyView} 
-              onClick={() => {
-                setMonthlyView(!monthlyView);
-                fetchMultiItemComparison(selectedItems, f1, t1, f2, t2, !monthlyView);
-              }}
+              onClick={() => setMonthlyView(!monthlyView)}
             >
               {monthlyView ? '📅 Monthly Breakdown' : '📊 Monthly Breakdown'}
             </ToggleButton>

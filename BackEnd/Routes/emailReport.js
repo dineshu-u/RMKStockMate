@@ -81,6 +81,13 @@ function drawBrandedHeader(doc, title, infoLines) {
 // Data fetchers - same SQL as each report's GET route
 // ============================================
 async function fetchMonthlyData(fdate, tdate) {
+  // First day of fdate's month and of the previous month, so the
+  // previous-calendar-month lookup can use the (item, date) index.
+  const monthStart = fdate.substring(0, 7) + '-01';
+  const my = Number(monthStart.substring(0, 4));
+  const mm = Number(monthStart.substring(5, 7));
+  const prevMonthStart = `${mm === 1 ? my - 1 : my}-${String(mm === 1 ? 12 : mm - 1).padStart(2, '0')}-01`;
+
   const [rows] = await db.promise().query(`
     SELECT
       p_sub.item,
@@ -99,8 +106,8 @@ async function fetchMonthlyData(fdate, tdate) {
                   (SELECT AVG(amountKg)
                    FROM purchase
                    WHERE item = p_sub.item
-                     AND DATE_FORMAT(date, '%Y-%m') = DATE_FORMAT(DATE_SUB(?, INTERVAL 1 MONTH), '%Y-%m')
-                  ),
+                     AND date >= ? AND date < ?
+                   ),
                   0
               ) * COALESCE(
                   (SELECT quantity
@@ -138,7 +145,7 @@ async function fetchMonthlyData(fdate, tdate) {
         GROUP BY item
     ) d_sub
     ON p_sub.item = d_sub.item
-  `, [fdate, fdate, fdate, fdate, tdate, fdate, tdate]);
+  `, [fdate, prevMonthStart, monthStart, fdate, fdate, tdate, fdate, tdate]);
   return rows;
 }
 

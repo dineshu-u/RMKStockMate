@@ -698,10 +698,6 @@ async function generateComparisonPDF(reportData, fdate1, tdate1, fdate2, tdate2,
           // Ensure space for item table (item title + header + 3 data rows = ~200pt)
           ensureSpace(220);
 
-          // Item title - matches web ItemSectionHeader
-          doc.fontSize(14).font('Helvetica-Bold').fillColor(RMK_DARK).text(`Item: ${data.item}`);
-          doc.moveDown(0.5);
-
           // Table header row - matches web thead
           drawRow(['Period', 'RMKEC', 'RMDEC', 'RMKCET', 'Schools', 'Total Issued'], {
             bold: true,
