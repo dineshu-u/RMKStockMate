@@ -168,7 +168,7 @@ export const CategoryReport = React.forwardRef(({ fromDate, toDate }, ref) => {
     <Container ref={ref} className="print-container">
       <PrintHeader>
         <img src={Logo} alt="College Logo" />
-        <h1>College Name</h1>
+        <h1 className="print-college-name">College Name</h1>
       </PrintHeader>
       <h1>Category Report</h1>
       <DateRange>
