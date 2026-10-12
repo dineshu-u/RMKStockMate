@@ -248,6 +248,7 @@ const SendModalButton = styled.button`
 
 const PrintItemReport = () => {
   const reportRef = useRef();
+  const contentRef = useRef(null);
   const location = useLocation();
   const { fromDate, toDate, fromDate1, toDate1, fromDate2, toDate2 } = location.state || {};
 
@@ -290,15 +291,25 @@ const PrintItemReport = () => {
   };
 
   const handleExport = () => {
-    if (!reportRef.current) return;
-    const tables = reportRef.current.querySelectorAll('table');
-    if (tables.length === 0) return;
+    if (!contentRef.current) return;
+    const tables = contentRef.current.querySelectorAll('table');
+    if (tables.length === 0) {
+      toast.warning('No report data available to export');
+      return;
+    }
     const wb = XLSX.utils.book_new();
     tables.forEach((table, idx) => {
       const itemTitle = table.closest('.item-section')?.querySelector('h2')?.innerText || `Item_${idx + 1}`;
-      const sheetName = itemTitle.replace(/[\\/*?:[\]]/g, '').slice(0, 31);
+      let sheetName = itemTitle.replace(/[\\/*?:[\]]/g, '').slice(0, 31) || `Item_${idx + 1}`;
+      // Monthly view renders several tables per item - keep sheet names unique
+      if (wb.SheetNames.includes(sheetName)) {
+        const base = sheetName.slice(0, 27);
+        let n = 2;
+        while (wb.SheetNames.includes(`${base}_${n}`)) n += 1;
+        sheetName = `${base}_${n}`;
+      }
       const ws = XLSX.utils.table_to_sheet(table);
-      XLSX.utils.book_append_sheet(wb, ws, sheetName || `Item_${idx + 1}`);
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
     });
     const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
     saveAs(new Blob([wbout], { type: 'application/octet-stream' }), 'Multi_Item_Comparison_Report.xlsx');
@@ -380,21 +391,23 @@ const PrintItemReport = () => {
       <ButtonContainer>
         <ReactToPrint
           trigger={() => <PrintButton>Print Item Comparison</PrintButton>}
-          content={() => reportRef.current}
+          content={() => contentRef.current}
         />
         <ExportButton onClick={handleExport}>Export to Excel</ExportButton>
         <SendButton onClick={openSendModal} disabled={isSending}>Send Report</SendButton>
       </ButtonContainer>
       <ReportContainer>
-        <ItemReport 
-          ref={reportRef} 
-          fromDate={fromDate} 
-          toDate={toDate}
-          fromDate1={fromDate1}
-          toDate1={toDate1}
-          fromDate2={fromDate2}
-          toDate2={toDate2}
-        />
+        <div ref={contentRef}>
+          <ItemReport 
+            ref={reportRef} 
+            fromDate={fromDate} 
+            toDate={toDate}
+            fromDate1={fromDate1}
+            toDate1={toDate1}
+            fromDate2={fromDate2}
+            toDate2={toDate2}
+          />
+        </div>
       </ReportContainer>
 
       {isSendModalOpen && (
