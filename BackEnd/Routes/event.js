@@ -1,17 +1,27 @@
 const express = require('express');
 const db = require('../db');
+const { validateEventPayload } = require('../utils/eventValidation');
 const router = express.Router();
 
 router.post('/addevent', (req, res) => {
   console.log("REQUEST BODY IS ", req.body);
-  const { event_name, institution, event_date, meal_details,day,no_of_people } = req.body;
+  const { event_name, institution, event_date, meal_details, no_of_people } = req.body || {};
+
+  // Backward-compatible validation: valid payloads behave exactly as before,
+  // malformed ones are rejected with 400 instead of being stored.
+  const validation = validateEventPayload(req.body);
+  if (!validation.valid) {
+    return res.status(400).json({ message: validation.message });
+  }
+
+  const day = validation.day;
 
   const sqlInsert = `
     INSERT INTO events(event_name, institution, event_date, meal_details,day,no_of_people)
     VALUES (?, ?, ?, ?,?,?)
   `;
 
-  db.query(sqlInsert, [event_name, institution, event_date, JSON.stringify(meal_details),day,no_of_people], (err, result) => {
+  db.query(sqlInsert, [event_name, institution, event_date, JSON.stringify(meal_details), day, no_of_people], (err, result) => {
     if (err) {
       console.error("Error inserting event details:", err);
       res.status(500).send("Error inserting event details");

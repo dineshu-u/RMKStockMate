@@ -498,6 +498,15 @@ const PrintAttendanceReport = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config]);
 
+  // Refetch whenever the institution/category filters change so the
+  // selection is reflected immediately in the displayed report
+  useEffect(() => {
+    if (config.length > 0) {
+      fetchReport();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [institutionFilter, categoryFilter]);
+
   const handleViewChange = v => {
     setView(v);
     if (config.length > 0) fetchReport({ view: v });
@@ -576,6 +585,9 @@ const PrintAttendanceReport = () => {
   // ---------------- Renderers ----------------
 
   const renderDaily = data => {
+    if (data.institutions.length === 0) {
+      return <EmptyMessage>No attendance data matches the selected filters for this date.</EmptyMessage>;
+    }
     const catIds = [];
     const catNames = {};
     data.institutions.forEach(inst =>

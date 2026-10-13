@@ -143,7 +143,13 @@ function buildDaily(config, records, date) {
   });
 
   const grandTotal = institutions.reduce((a, i) => a + i.total, 0);
-  return { date, institutions, categoryTotals, grandTotal, complete, recordedPairs: recMap.size };
+  // Count only pairs that belong to the (possibly filtered) config so the
+  // "X of Y entries recorded" banner stays correct when filters are applied
+  const recordedPairs = institutions.reduce(
+    (a, i) => a + i.categories.filter(cat => cat.headcount !== null).length,
+    0
+  );
+  return { date, institutions, categoryTotals, grandTotal, complete, recordedPairs };
 }
 
 async function fetchRecords(from, to, institutionId, categoryId) {
@@ -411,21 +417,43 @@ router.post('/save', async (req, res) => {
 });
 
 // Daily summary - authoritative totals for one date
+// Optional institutionId/categoryId filters (same params as /report/range);
+// absent or empty params return the unfiltered report.
 router.get('/report/daily', async (req, res) => {
-  const { date } = req.query;
+  const { date, institutionId, categoryId } = req.query;
   if (!isValidDateString(date)) {
     return res.status(400).json({ message: 'Invalid or missing date. Expected YYYY-MM-DD.' });
+  }
+  const instFilter = institutionId === undefined || institutionId === '' ? undefined : parseId(institutionId);
+  const catFilter = categoryId === undefined || categoryId === '' ? undefined : parseId(categoryId);
+  if (institutionId !== undefined && institutionId !== '' && !isId(instFilter)) {
+    return res.status(400).json({ message: 'Invalid institutionId' });
+  }
+  if (categoryId !== undefined && categoryId !== '' && !isId(catFilter)) {
+    return res.status(400).json({ message: 'Invalid categoryId' });
   }
   try {
     const config = await loadConfig();
     if (config.length === 0) {
       return res.status(503).json({ message: 'Attendance is not configured. Run migrations/001_attendance_schema.sql.' });
     }
+    const filtered = filterConfig(config, instFilter, catFilter);
+    if (!filtered) {
+      // Filters match no institution/category - return an empty report
+      return res.status(200).json({
+        date,
+        institutions: [],
+        categoryTotals: [],
+        grandTotal: 0,
+        complete: true,
+        recordedPairs: 0
+      });
+    }
     const [rows] = await db.promise().query(
       'SELECT institution_id, category_id, headcount FROM attendance_records WHERE attendance_date = ?',
       [date]
     );
-    res.status(200).json(buildDaily(config, rows, date));
+    res.status(200).json(buildDaily(filtered, rows, date));
   } catch (error) {
     console.error('Error building daily attendance report:', error);
     res.status(500).json({ message: 'Failed to build daily attendance report' });
