@@ -602,7 +602,7 @@ const PrintAttendanceReport = () => {
           <div className="grand">Grand Total: {num(data.grandTotal)}</div>
         </SummaryBanner>
         <div data-sheetname={`Daily ${data.date}`}>
-          <table>
+          <ReportTable>
             <thead>
               <tr>
                 <th>Institution</th>
@@ -636,7 +636,7 @@ const PrintAttendanceReport = () => {
                 <td>{num(data.grandTotal)}</td>
               </tr>
             </tbody>
-          </table>
+          </ReportTable>
         </div>
         {data.complete === false && (
           <p style={{ color: '#b45309', fontSize: '0.85rem' }}>
@@ -662,7 +662,7 @@ const PrintAttendanceReport = () => {
       </SummaryBanner>
       {data.days.length > 0 ? (
         <div data-sheetname="Date Range">
-          <table>
+          <ReportTable>
             <thead>
               <tr>
                 <th>Date</th>
@@ -702,7 +702,7 @@ const PrintAttendanceReport = () => {
                 <td></td>
               </tr>
             </tbody>
-          </table>
+          </ReportTable>
         </div>
       ) : (
         <EmptyMessage>No attendance records found for the selected range and filters.</EmptyMessage>
@@ -726,7 +726,7 @@ const PrintAttendanceReport = () => {
         data.months.map(month => (
           <div key={month.month} data-sheetname={`Summary ${month.month}`}>
             <SectionHeading>{month.label}</SectionHeading>
-            <table>
+            <ReportTable>
               <thead>
                 <tr>
                   <th>Institution</th>
@@ -750,10 +750,10 @@ const PrintAttendanceReport = () => {
                   </td>
                 </tr>
               </tbody>
-            </table>
+            </ReportTable>
 
             <SectionHeading>{month.label} - Daily Totals</SectionHeading>
-            <table>
+            <ReportTable>
               <thead>
                 <tr>
                   <th>Date</th>
@@ -776,7 +776,7 @@ const PrintAttendanceReport = () => {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </ReportTable>
           </div>
         ))
       )}
