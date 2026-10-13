@@ -15,3 +15,5 @@
 {"schemaVersion":2,"id":"7-a5d175a5","episodeId":"mcp-25800-mv3z62jw","sessionId":"mcp-25800-mv3z62jw","arm":"full","client":"opencode","clientVersion":"1.19.0","kind":"mcp-tool","toolName":"wiki_write","durationMs":908,"success":true,"at":1791735378738}
 {"schemaVersion":2,"id":"1-7bb2f3ff","episodeId":"mcp-25568-mv4p1nqo","sessionId":"mcp-25568-mv4p1nqo","arm":"full","client":"antigravity-client","clientVersion":"v1.0.0","kind":"mcp-client","clientTitle":null,"at":1791775797714}
 {"schemaVersion":2,"id":"1-66d97e74","episodeId":"mcp-24068-mv4ppvau","sessionId":"mcp-24068-mv4ppvau","arm":"full","client":"opencode","clientVersion":"1.19.0","kind":"mcp-client","clientTitle":null,"at":1791776925477}
+{"schemaVersion":2,"id":"1-31bfb7cd","episodeId":"mcp-14488-mv69r66e","sessionId":"mcp-14488-mv69r66e","arm":"full","client":"antigravity-client","clientVersion":"v1.0.0","kind":"mcp-client","clientTitle":null,"at":1791871044772}
+{"schemaVersion":2,"id":"1-5dbfdd2b","episodeId":"mcp-16512-mv6ei7j1","sessionId":"mcp-16512-mv6ei7j1","arm":"full","client":"antigravity-client","clientVersion":"v1.0.0","kind":"mcp-client","clientTitle":null,"at":1791879026757}
