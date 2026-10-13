@@ -162,7 +162,7 @@ const PrintArea = styled.div`
   border-radius: 10px;
   padding: 24px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-  margin-bottom: 30px;
+  margin: 0 auto 30px;
 
   @media print {
     box-shadow: none;
