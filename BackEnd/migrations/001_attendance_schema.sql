@@ -77,7 +77,7 @@ INSERT IGNORE INTO attendance_institutions (name) VALUES
   ('RMK'),
   ('RMD'),
   ('RMK-CET'),
-  ('RMK H/School'),
+  ('RMK Residential'),
   ('RMK Mat. School'),
   ('SDPC'),
   ('RMK School / Thiruverkadu'),

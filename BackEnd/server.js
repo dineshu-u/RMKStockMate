@@ -18,6 +18,7 @@ const graphItem = require('./Routes/graph');
 const Itemwise = require('./Routes/ItemWise');
 const Event = require('./Routes/event');
 const attendanceRtr = require('./Routes/Attendance');
+const eventItemsRtr = require('./Routes/eventItems');
 const db = require('./db');
 app.use(cors());
 app.use(express.json());
@@ -34,6 +35,7 @@ app.use('/item',Itemwise);
 app.use('/event',Event);
 app.use('/graph',graphItem);
 app.use('/attendance',attendanceRtr);
+app.use('/eventItems',eventItemsRtr);
 const JWT_SECRET = 'rmkecmessmanagement-IT-2022-2026';
 
 app.post('/login', (req, res) => {
@@ -85,6 +87,10 @@ app.post('/signup', (req, res) => {
   });
 });
 
-app.listen(3002,()=>{
-  console.log("You r up!!!");
+// Defaults to the port the app has always used; overridable so an automated
+// check can start its own instance without disturbing a running dev server.
+const PORT = Number(process.env.PORT) || 3002;
+
+app.listen(PORT,()=>{
+  console.log(`You r up on port ${PORT}!!!`);
 })

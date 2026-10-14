@@ -17,7 +17,7 @@ export const INSTITUTIONS = [
   'RMK',
   'RMD',
   'RMK-CET',
-  'RMK H/School',
+  'RMK Residential',
   'RMK Mat. School',
   'SDPC',
   'RMK School / Thiruverkadu',
@@ -29,11 +29,19 @@ export const INSTITUTIONS = [
 export const MEAL_TYPES = ['Breakfast', 'Lunch', 'Dinner', 'Snacks', 'Beverages'];
 export const ITEM_TYPES = ['Veg', 'Non-Veg', 'Common'];
 
-// Existing endpoints reused by the form (no new APIs were introduced).
-//  - /attendance/config        -> { institutions: [{ id, name, categories }] }
-//  - /addItems/getItemCategory -> [{ item, category }]   (master stock item list)
+// Endpoints used by the form.
+//  - /attendance/config -> { institutions: [{ id, name, categories }] }
+//  - /eventItems        -> { items: [{ id, name }] }  (event item catalogue)
+//
+// The meal item list deliberately does NOT come from the inventory master list
+// (/addItems/getItemCategory, backed by the `category` table). An event item is a
+// menu ingredient recorded against an event; creating one must never create
+// stock, change a balance or deduct inventory, and the two lists are different
+// business entities even when names coincide.
 export const INSTITUTION_ENDPOINT = '/attendance/config';
-export const ITEM_ENDPOINT = '/addItems/getItemCategory';
+export const EVENT_ITEM_ENDPOINT = '/eventItems';
+
+export const MAX_ITEM_NAME_LENGTH = 150;
 
 // ---------------------------------------------------------------------------
 // Row identity
@@ -44,11 +52,12 @@ export const nextUid = () => `uid-${++uidCounter}`;
 
 export const createItemRow = () => ({
   uid: nextUid(),
+  // Identity of the selected event item. `name` is a display copy of the
+  // catalogue record; itemId is what actually links the row to event_items.
+  itemId: '',
   name: '',
   quantity: '',
   type: '',
-  category: '',
-  unit: '',
 });
 
 export const createMealSection = () => ({
@@ -167,39 +176,67 @@ export const normalizeInstitutions = (payload) => {
   return names.length ? [...new Set(names)] : [...INSTITUTIONS];
 };
 
-// Normalises the stock item list from the existing item endpoints.
-// Handles [{ item, category }], { success, data: [{ itemName, quantity, category }] }
-// and [{ item }]. Items are identified by their name because that is the identity
-// used by every stock table (category.item, current.item, purchase.item) and by
-// the events payload itself. A unit is only carried through if the stock record
-// actually exposes one (none of the current stock tables do).
-export const normalizeStockItems = (payload) => {
-  const raw = Array.isArray(payload) ? payload : payload?.data;
+// Normalises the event item catalogue from GET /eventItems.
+// Accepts { items: [{ id, name }] }, a bare array, or { data: [...] } so a
+// server response-wrapper change cannot silently empty the selector. A row
+// without a usable id is dropped: it could be displayed but never persisted,
+// and offering it would only fail at submit time.
+export const normalizeEventItems = (payload) => {
+  const raw = Array.isArray(payload) ? payload : payload?.items ?? payload?.data;
   const seen = new Set();
   const items = [];
   (Array.isArray(raw) ? raw : []).forEach((entry) => {
-    if (!entry) return;
-    const name = String(typeof entry === 'string' ? entry : entry.item ?? entry.itemName ?? '').trim();
-    if (!name || seen.has(name.toLowerCase())) return;
-    seen.add(name.toLowerCase());
-    items.push({
-      name,
-      category: String(entry.category ?? '').trim(),
-      unit: String(entry.unit ?? entry.units ?? entry.uom ?? '').trim(),
-    });
+    if (!entry || typeof entry !== 'object') return;
+    const id = Number(entry.id ?? entry.itemId);
+    const name = normalizeItemName(entry.name ?? entry.item ?? entry.itemName);
+    if (!Number.isInteger(id) || id <= 0 || !name) return;
+    if (seen.has(id)) return;
+    seen.add(id);
+    items.push({ id, name });
   });
   return items.sort((a, b) => a.name.localeCompare(b.name));
 };
 
-// Set of valid item names, used to reject stale or hand-typed item names.
-export const itemNameSet = (items) => new Set((items ?? []).map((i) => i.name));
+// Set of valid catalogue ids, used to reject stale or hand-typed selections.
+// Identity is the id, never the display name.
+export const eventItemIdSet = (items) => new Set((items ?? []).map((item) => item.id));
+
+// The same display-name normalization the backend applies (trim, collapse
+// internal whitespace), so the UI's "already exists" decision matches the
+// server's duplicate rule instead of contradicting it.
+export const normalizeItemName = (raw) => String(raw ?? '').replace(/\s+/g, ' ').trim();
+
+// Case-insensitive lookup of an equivalent catalogue item.
+export const findEventItemByName = (items, name) => {
+  const target = normalizeItemName(name).toLowerCase();
+  if (!target) return null;
+  return (items ?? []).find((item) => item.name.toLowerCase() === target) ?? null;
+};
 
 // ---------------------------------------------------------------------------
-// Client-side item search (the app already filters the same list client-side,
-// so no extra request is made per keystroke)
+// New event item draft (inline "+ Add ..." form)
 // ---------------------------------------------------------------------------
 
-export const filterStockItems = (items, query, limit = 50) => {
+// Returns { valid, errors, name } for a draft, mirroring the server rules.
+export const validateEventItemDraft = ({ name }) => {
+  const errors = { name: '' };
+  const cleanName = normalizeItemName(name);
+
+  if (!cleanName) {
+    errors.name = 'Item name is required.';
+  } else if (cleanName.length > MAX_ITEM_NAME_LENGTH) {
+    errors.name = `Item name must be ${MAX_ITEM_NAME_LENGTH} characters or fewer.`;
+  }
+
+  return { valid: !errors.name, errors, name: cleanName };
+};
+
+// ---------------------------------------------------------------------------
+// Client-side event item search (the catalogue is loaded once, so no request is
+// made per keystroke)
+// ---------------------------------------------------------------------------
+
+export const filterEventItems = (items, query, limit = 50) => {
   const list = items ?? [];
   const q = String(query ?? '').trim().toLowerCase();
   if (!q) {
@@ -208,12 +245,10 @@ export const filterStockItems = (items, query, limit = 50) => {
   const scored = [];
   list.forEach((item) => {
     const name = item.name.toLowerCase();
-    const category = (item.category || '').toLowerCase();
     let score;
     if (name.startsWith(q)) score = 0;
     else if (name.split(/[^a-z0-9]+/).some((word) => word.startsWith(q))) score = 1;
     else if (name.includes(q)) score = 2;
-    else if (category.includes(q)) score = 3;
     else return;
     scored.push({ item, score });
   });
@@ -231,13 +266,14 @@ export const filterStockItems = (items, query, limit = 50) => {
 // ---------------------------------------------------------------------------
 
 // Validates the whole event and returns { valid, errors, firstInvalidRef }.
-//  - itemNames: optional Set of valid stock item names; when supplied, every item
-//    name must belong to it (blocks stale or hand-typed items).
+//  - allowedItemIds: optional Set of valid event_items ids. Each meal item must
+//    carry an id from this set, so a stale, hand-typed or renamed selection can
+//    never be submitted. Identity is the id, not the display name.
 //  - allowedInstitutions: optional list of institution names to accept
 //    (defaults to the approved constant list).
 export const validateEventForm = (
   { eventName, institution, eventDate, noOfPeople, mealSections },
-  itemNames,
+  allowedItemIds,
   allowedInstitutions = INSTITUTIONS
 ) => {
   const errors = {
@@ -250,10 +286,16 @@ export const validateEventForm = (
 
   if (!String(eventName ?? '').trim()) errors.eventName = 'Event name is required.';
 
-  if (!institution) {
-    errors.institution = 'Please select an institution.';
-  } else if (!allowedInstitutions.includes(institution)) {
-    errors.institution = 'Select an institution from the list.';
+  // Institution validation: expect array of selected institution names
+  if (!Array.isArray(institution) || institution.length === 0) {
+    errors.institution = 'Please select at least one institution.';
+  } else {
+    const invalid = institution.find(
+      (inst) => !allowedInstitutions.includes(inst)
+    );
+    if (invalid) {
+      errors.institution = `Select an institution from the list. "${invalid}" is not allowed.`;
+    }
   }
 
   if (!eventDate) {
@@ -292,11 +334,11 @@ export const validateEventForm = (
     }
     items.forEach((item) => {
       const itemErrors = { name: '', quantity: '', type: '' };
-      const name = String(item.name ?? '').trim();
-      if (!name) {
-        itemErrors.name = 'Select a stock item.';
-      } else if (itemNames && !itemNames.has(name)) {
-        itemErrors.name = 'Select an item from the stock list.';
+      const itemId = Number(item.itemId);
+      if (!Number.isInteger(itemId) || itemId <= 0) {
+        itemErrors.name = 'Select an event item from the list.';
+      } else if (allowedItemIds && !allowedItemIds.has(itemId)) {
+        itemErrors.name = 'Select an item from the event item list.';
       }
       itemErrors.quantity = validateQuantity(item.quantity);
       if (!ITEM_TYPES.includes(item.type)) {
@@ -330,23 +372,28 @@ export const validateEventForm = (
 // Payload builder
 // ---------------------------------------------------------------------------
 
-// Builds the request body in the EXACT shape the existing backend expects:
+// Builds the request body in the shape the existing backend expects:
 //   { event_name, institution, event_date (YYYY-MM-DD), day, no_of_people,
-//     meal_details: [{ mealType, items: [{ name, quantity, type }] }] }
-// Internal uid/category/unit keys are stripped and quantities/people are sent as
-// strings, matching the format already stored in the events table (varchar
-// no_of_people, string quantities inside the meal_details JSON).
+//     meal_details: [{ mealType, items: [{ itemId, name, quantity, type }] }] }
+// The internal row `uid` is stripped and quantities/people are sent as strings,
+// matching the format already stored in the events table (varchar no_of_people,
+// string quantities inside the meal_details JSON). `itemId` is a new key inside
+// that JSON column: the existing screens and reports read name / quantity / type
+// and are unaffected, and the historical rows simply have no itemId.
 export const buildEventPayload = ({ eventName, institution, eventDate, noOfPeople, mealSections }) => {
   const d = dayjs(eventDate);
   return {
     event_name: String(eventName ?? '').trim(),
-    institution,
+    institution: Array.isArray(institution) ? institution.join(', ') : String(institution ?? '').trim(),
     event_date: d.isValid() ? d.format('YYYY-MM-DD') : null,
     day: deriveDayFromDate(eventDate),
     no_of_people: String(noOfPeople ?? '').trim(),
     meal_details: (mealSections ?? []).map((section) => ({
       mealType: section.mealType,
       items: (section.items ?? []).map((item) => ({
+        // Links the meal item to its event_items record; the display name is
+        // sent alongside it so the stored record stays readable on its own.
+        itemId: Number(item.itemId),
         name: String(item.name ?? '').trim(),
         quantity: String(item.quantity ?? '').trim(),
         type: item.type,

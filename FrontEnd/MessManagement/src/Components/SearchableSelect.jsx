@@ -1,13 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import styled from 'styled-components';
-import { FaChevronDown, FaTimes } from 'react-icons/fa';
+import { FaChevronDown, FaPlus, FaTimes } from 'react-icons/fa';
 
 // Lightweight, keyboard-accessible searchable select (combobox) used for the
-// Institution and stock Item fields on the Add Event form.
+// Institution and event Item fields on the Add Event form.
 //
 // Deliberately dependency-free: the app already ships styled-components and
 // react-icons but does not use @mui/material anywhere, so importing a heavy
 // Autocomplete component for two fields would be out of place.
+//
+// It can optionally offer a "+ Add \"...\"" action as the last row of the list
+// (see allowCreate / onCreateNew), which only appears while the typed query has
+// no exact match in the loaded options.
 
 const Wrapper = styled.div`
   position: relative;
@@ -40,6 +44,42 @@ const SearchInput = styled.input`
   &:disabled {
     background: #f4f4f4;
     cursor: not-allowed;
+  }
+`;
+
+// Selected-value chips shown inside the control when `multiple` is enabled.
+const Chips = styled.span`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 5px 6px;
+  min-width: 0;
+`;
+
+const Chip = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #e8f1f7;
+  color: #164863;
+  border-radius: 14px;
+  padding: 3px 8px 3px 10px;
+  font-size: 0.8rem;
+  white-space: nowrap;
+
+  button {
+    border: none;
+    background: transparent;
+    color: #164863;
+    cursor: pointer;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    font-size: 0.72rem;
+
+    &:hover {
+      color: #b00020;
+    }
   }
 `;
 
@@ -114,6 +154,27 @@ const StatusRow = styled.li`
   }
 `;
 
+// Same normalization the catalogue uses (trim + collapse internal whitespace) so
+// the "already exists" decision cannot disagree with the server's duplicate rule.
+const normalizeText = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+
+const CreateRow = styled.li`
+  padding: 9px 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #164863;
+  font-size: 0.92rem;
+  font-weight: 700;
+  border-top: 1px solid #ecf2f6;
+  background: ${(p) => (p.$active ? '#e8f1f7' : 'transparent')};
+
+  svg {
+    flex-shrink: 0;
+  }
+`;
+
 const defaultFilter = (options, query) => {
   const q = query.trim().toLowerCase();
   if (!q) return options;
@@ -127,6 +188,7 @@ const SearchableSelect = ({
   id,
   value,
   onChange,
+  multiple = false,
   options = [],
   placeholder = 'Select',
   disabled = false,
@@ -139,6 +201,8 @@ const SearchableSelect = ({
   filterFn,
   limit,
   clearable = true,
+  allowCreate = false,
+  onCreateNew,
 }) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -146,7 +210,16 @@ const SearchableSelect = ({
   const wrapperRef = useRef(null);
   const inputRef = useRef(null);
 
+  // In single mode `value` is one option value; in multiple mode it is an array.
+  const selectedValues = useMemo(
+    () => (multiple ? (Array.isArray(value) ? value : []) : value ? [value] : []),
+    [multiple, value]
+  );
   const selected = useMemo(() => options.find((o) => o.value === value) ?? null, [options, value]);
+  const selectedOptions = useMemo(
+    () => options.filter((o) => selectedValues.includes(o.value)),
+    [options, selectedValues]
+  );
 
   const results = useMemo(() => {
     if (filterFn) return filterFn(options, query);
@@ -154,9 +227,24 @@ const SearchableSelect = ({
     return limit ? filtered.slice(0, limit) : filtered;
   }, [options, query, filterFn, limit]);
 
+  const cleanQuery = normalizeText(query);
+
+  // Offer the create action only when the typed name is genuinely missing: a
+  // query that already matches an option exactly must not prompt a duplicate.
+  const hasExactMatch = useMemo(() => {
+    const target = cleanQuery.toLowerCase();
+    return options.some((option) => normalizeText(option.label).toLowerCase() === target);
+  }, [options, cleanQuery]);
+
+  const showCreate = Boolean(allowCreate && onCreateNew && cleanQuery) && !hasExactMatch;
+
+  // Keyboard navigation spans the result rows plus the optional create row.
+  const optionCount = results.length + (showCreate ? 1 : 0);
+  const activeRow = optionCount === 0 ? 0 : Math.min(activeIndex, optionCount - 1);
+
   // The text shown in the box: what the user is typing while the list is open,
   // otherwise the label of the current selection.
-  const inputText = open ? query : selected?.label ?? '';
+  const inputText = open ? query : multiple ? '' : selected?.label ?? '';
   const listboxId = `${id}-listbox`;
 
   useEffect(() => {
@@ -185,13 +273,32 @@ const SearchableSelect = ({
 
   const commit = (option) => {
     if (!option) return;
+    if (multiple) {
+      const already = selectedValues.includes(option.value);
+      onChange(
+        already
+          ? selectedValues.filter((v) => v !== option.value)
+          : [...selectedValues, option.value]
+      );
+      // Keep the list open so several options can be picked in one go.
+      setQuery('');
+      setActiveIndex(0);
+      inputRef.current?.focus();
+      return;
+    }
     onChange(option.value);
     closeList();
   };
 
+  // Removes one chip (multiple mode) or clears the single selection.
+  const removeValue = (val) => {
+    onChange(multiple ? selectedValues.filter((v) => v !== val) : '');
+    inputRef.current?.focus();
+  };
+
   const handleKeyDown = (event) => {
     if (disabled) return;
-    const count = results.length;
+    const count = optionCount;
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
       if (!open) {
@@ -208,7 +315,12 @@ const SearchableSelect = ({
     if (event.key === 'Enter') {
       if (open) {
         event.preventDefault();
-        commit(results[activeIndex]);
+        if (showCreate && activeRow === results.length) {
+          onCreateNew(cleanQuery);
+          closeList();
+          return;
+        }
+        commit(results[activeRow]);
       }
       return;
     }
@@ -234,6 +346,23 @@ const SearchableSelect = ({
   return (
     <Wrapper ref={wrapperRef}>
       <Control $invalid={invalid}>
+        {multiple && selectedOptions.length > 0 && (
+          <Chips>
+            {selectedOptions.map((option) => (
+              <Chip key={option.value}>
+                {option.label}
+                <button
+                  type="button"
+                  aria-label={`Remove ${option.label}`}
+                  tabIndex={-1}
+                  onClick={() => removeValue(option.value)}
+                >
+                  <FaTimes />
+                </button>
+              </Chip>
+            ))}
+          </Chips>
+        )}
         <SearchInput
           id={id}
           ref={inputRef}
@@ -244,7 +373,11 @@ const SearchableSelect = ({
           aria-controls={showPopup ? listboxId : undefined}
           aria-autocomplete="list"
           aria-activedescendant={
-            showPopup && results.length ? `${id}-option-${activeIndex}` : undefined
+            showPopup && optionCount
+              ? activeRow === results.length && showCreate
+                ? `${id}-create`
+                : `${id}-option-${activeRow}`
+              : undefined
           }
           aria-invalid={invalid || undefined}
           aria-describedby={describedBy}
@@ -271,13 +404,13 @@ const SearchableSelect = ({
             }, 120);
           }}
         />
-        {clearable && selected && !disabled && (
+        {clearable && !disabled && (multiple ? selectedValues.length > 0 : selected) && (
           <IconButton
             type="button"
             aria-label="Clear selection"
             tabIndex={-1}
             onClick={() => {
-              onChange('');
+              onChange(multiple ? [] : '');
               closeList();
               inputRef.current?.focus();
             }}
@@ -318,9 +451,11 @@ const SearchableSelect = ({
             </StatusRow>
           )}
 
-          {!loading && !loadError && results.length === 0 && (
+          {!loading && !loadError && results.length === 0 && !showCreate && (
             <StatusRow>
-              {options.length === 0 ? 'No options available.' : 'No matches found.'}
+              {options.length === 0
+                ? 'No options available yet.'
+                : 'No matches found. Check the spelling, or type a new item name.'}
             </StatusRow>
           )}
 
@@ -331,8 +466,10 @@ const SearchableSelect = ({
                 key={option.value}
                 id={`${id}-option-${index}`}
                 role="option"
-                aria-selected={option.value === value}
-                $active={index === activeIndex}
+                aria-selected={
+                  multiple ? selectedValues.includes(option.value) : option.value === value
+                }
+                $active={index === activeRow}
                 onMouseEnter={() => setActiveIndex(index)}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => commit(option)}
@@ -341,6 +478,24 @@ const SearchableSelect = ({
                 {option.meta ? <span className="meta">{option.meta}</span> : null}
               </Option>
             ))}
+
+          {!loading && !loadError && showCreate && (
+            <CreateRow
+              id={`${id}-create`}
+              role="option"
+              aria-selected={false}
+              $active={activeRow === results.length}
+              onMouseEnter={() => setActiveIndex(results.length)}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                onCreateNew(cleanQuery);
+                closeList();
+              }}
+            >
+              <FaPlus aria-hidden="true" />
+              <span>Add “{cleanQuery}”</span>
+            </CreateRow>
+          )}
         </Popup>
       )}
     </Wrapper>

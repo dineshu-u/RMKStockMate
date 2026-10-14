@@ -44,6 +44,23 @@ const isPositiveNumberString = (value) => {
   return Number.isFinite(num) && num > 0;
 };
 
+// Event meal items may now carry the catalogue id and the item's unit
+// (meal_details is a JSON column, so this is additive). Both are optional so
+// payloads written before the event item catalogue existed - and the historical
+// rows already in the table - remain valid; when present they must be sane.
+const MAX_UNIT_LENGTH = 50;
+
+const isOptionalItemId = (value) => {
+  if (value === undefined || value === null || value === '') return true;
+  const num = Number(value);
+  return Number.isInteger(num) && num > 0;
+};
+
+const isOptionalUnit = (value) => {
+  if (value === undefined || value === null || value === '') return true;
+  return typeof value === 'string' && value.trim().length > 0 && value.trim().length <= MAX_UNIT_LENGTH;
+};
+
 // Returns { valid: true, day } or { valid: false, message }.
 // `day` is the day to store: the submitted label when present, otherwise derived
 // from event_date (the column is nullable and always derivable from the date).
@@ -57,14 +74,28 @@ const validateEventPayload = (body) => {
     return { valid: false, message: `event_name must be ${MAX_NAME_LENGTH} characters or fewer.` };
   }
 
-  const institutionName = String(institution ?? '').trim();
-  if (!institutionName) return { valid: false, message: 'institution is required.' };
-  if (institutionName.length > MAX_INSTITUTION_LENGTH) {
-    return {
-      valid: false,
-      message: `institution must be ${MAX_INSTITUTION_LENGTH} characters or fewer.`,
-    };
+  // Institution may be a comma-separated list; validate each part.
+  const institutionStr = String(institution ?? '').trim();
+  if (!institutionStr) {
+    return { valid: false, message: 'institution is required.' };
   }
+  const parts = institutionStr
+    .split(',')
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  if (parts.length === 0) {
+    return { valid: false, message: 'institution is required.' };
+  }
+  for (const part of parts) {
+    if (part.length > MAX_INSTITUTION_LENGTH) {
+      return {
+        valid: false,
+        message: `Each institution name must be ${MAX_INSTITUTION_LENGTH} characters or fewer.`,
+      };
+    }
+  }
+  // Rejoin with ', ' for storage.
+  const normalizedInstitution = parts.join(', ');
 
   if (!isValidDateString(event_date)) {
     return { valid: false, message: 'event_date is required and must be a valid YYYY-MM-DD date.' };
@@ -119,11 +150,23 @@ const validateEventPayload = (body) => {
           message: `${itemLabel}.type must be one of: ${ITEM_TYPES.join(', ')}.`,
         };
       }
+      if (!isOptionalItemId(item.itemId)) {
+        return {
+          valid: false,
+          message: `${itemLabel}.itemId must be a positive integer when provided.`,
+        };
+      }
+      if (!isOptionalUnit(item.unit)) {
+        return {
+          valid: false,
+          message: `${itemLabel}.unit must be a non-empty string of ${MAX_UNIT_LENGTH} characters or fewer when provided.`,
+        };
+      }
     }
   }
 
   const submittedDay = String(day ?? '').trim();
-  return { valid: true, day: submittedDay || weekdayFromDate(event_date) };
+  return { valid: true, day: submittedDay || weekdayFromDate(event_date), institution: normalizedInstitution };
 };
 
-module.exports = { validateEventPayload, MEAL_TYPES, ITEM_TYPES, weekdayFromDate };
+module.exports = { validateEventPayload, MEAL_TYPES, ITEM_TYPES, MAX_UNIT_LENGTH, weekdayFromDate };

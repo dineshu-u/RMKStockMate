@@ -5,6 +5,7 @@ import { FaSearch, FaEdit, FaTrash, FaTimes } from 'react-icons/fa';
 import { useReactToPrint } from 'react-to-print';
 import { FaPrint } from 'react-icons/fa';
 import Logo from '../assets/Logo.png';
+import { getLicenseStatus, maskValidityInput, validateValidityRange } from '../utils/vendorLicense';
 
 const PrintButton = styled.button`
   align-self: flex-end;
@@ -92,6 +93,50 @@ const TableHeader = styled.th`
 const TableData = styled.td`
   padding: 10px;
   border: 1px solid #ddd;
+`;
+
+const StatusBadge = styled.span`
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  ${({ $tone }) => {
+    switch ($tone) {
+      case 'green':
+        return 'background: #e6f4ea; color: #1e7e34; border: 1px solid #b7dfc2;';
+      case 'amber':
+        return 'background: #fff4e5; color: #8a5a00; border: 1px solid #f0d9a8;';
+      case 'red':
+        return 'background: #fdecea; color: #b3261e; border: 1px solid #f5c6c0;';
+      default:
+        return 'background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0;';
+    }
+  }}
+`;
+
+const StatusNote = styled.div`
+  margin-top: 2px;
+  font-size: 0.72rem;
+  color: #64748b;
+`;
+
+const Legend = styled.div`
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+  color: #475569;
+  margin-bottom: 4px;
+`;
+
+const FieldError = styled.div`
+  margin-top: 5px;
+  font-size: 0.8rem;
+  color: #b3261e;
 `;
 
 const Button = styled.button`
@@ -246,6 +291,7 @@ const VendorList = () => {
 
   const handleUpdateVendor = (e) => {
     e.preventDefault();
+    if (validityError) return; // invalid validity can never be submitted
     axios.put(`${import.meta.env.VITE_RMK_MESS_URL}/event/vendors/${currentVendor.id}`, currentVendor)
       .then(() => {
         setVendors(vendors.map(vendor =>
@@ -271,8 +317,20 @@ const VendorList = () => {
     }));
   };
 
+  // Validity field: auto-mask digits into "YYYY-MM-DD to YYYY-MM-DD" while typing.
+  const handleValidityChange = (e) => {
+    const masked = maskValidityInput(e.target.value);
+    setCurrentVendor(prevState => ({
+      ...prevState,
+      validity: masked
+    }));
+  };
+
+  const validityError = validateValidityRange(currentVendor.validity);
+
   const handleAddVendor = (e) => {
     e.preventDefault();
+    if (validityError) return; // invalid validity can never be submitted
     axios.post(`${import.meta.env.VITE_RMK_MESS_URL}/event/vendors`, currentVendor)
       .then(response => {
         setVendors([...vendors, { ...currentVendor, id: response.data.id }]);
@@ -311,7 +369,6 @@ const VendorList = () => {
         onChange={(e) => setSearchTerm(e.target.value)}
       />
       <Button onClick={handleAddClick}>Add Vendor</Button>
-
       <Table>
         <thead>
           <tr>
@@ -323,24 +380,32 @@ const VendorList = () => {
           </tr>
         </thead>
         <tbody>
-          {filteredVendors.map(vendor => (
-            <tr key={vendor.id}>
-              <TableData>{vendor.name}</TableData>
-              <TableData>{vendor.address}</TableData>
-              <TableData>{vendor.license_no}</TableData>
-              <TableData>{vendor.validity}</TableData>
-              <TableData>
-                <ButtonContainer>
-                  <Button onClick={() => handleEditClick(vendor)}>
-                    <FaEdit style={{ marginRight: '5px' }} />
-                  </Button>
-                  <Button onClick={() => deleteVendor(vendor.id)} style={{ marginLeft: '10px' }}>
-                    <FaTrash style={{ marginRight: '0px' }} />
-                  </Button>
-                </ButtonContainer>
-              </TableData>
-            </tr>
-          ))}
+          {filteredVendors.map(vendor => {
+            const status = getLicenseStatus(vendor.validity);
+            return (
+              <tr key={vendor.id}>
+                <TableData>{vendor.name}</TableData>
+                <TableData>{vendor.address}</TableData>
+                <TableData>{vendor.license_no}</TableData>
+                <TableData>
+                  {vendor.validity}
+                  <br />
+                  <StatusBadge $tone={status.tone}>{status.label}</StatusBadge>
+                  {status.note && <StatusNote>{status.note}</StatusNote>}
+                </TableData>
+                <TableData>
+                  <ButtonContainer>
+                    <Button onClick={() => handleEditClick(vendor)}>
+                      <FaEdit style={{ marginRight: '5px' }} />
+                    </Button>
+                    <Button onClick={() => deleteVendor(vendor.id)} style={{ marginLeft: '10px' }}>
+                      <FaTrash style={{ marginRight: '0px' }} />
+                    </Button>
+                  </ButtonContainer>
+                </TableData>
+              </tr>
+            );
+          })}
         </tbody>
       </Table>
 
@@ -388,10 +453,12 @@ const VendorList = () => {
                   type="text"
                   name="validity"
                   value={currentVendor.validity || ''}
-                  onChange={handleEditChange}
+                  onChange={handleValidityChange}
                   placeholder="YYYY-MM-DD to YYYY-MM-DD"
                   required
+                  aria-invalid={Boolean(validityError)}
                 />
+                {validityError && <FieldError role="alert">{validityError}</FieldError>}
               </FormField>
               <SubmitButton type="submit">Update Vendor</SubmitButton>
             </form>
@@ -443,10 +510,12 @@ const VendorList = () => {
                   type="text"
                   name="validity"
                   value={currentVendor.validity || ''}
-                  onChange={handleAddChange}
+                  onChange={handleValidityChange}
                   placeholder="YYYY-MM-DD to YYYY-MM-DD"
                   required
+                  aria-invalid={Boolean(validityError)}
                 />
+                {validityError && <FieldError role="alert">{validityError}</FieldError>}
               </FormField>
               <SubmitButton type="submit">Add Vendor</SubmitButton>
             </form>

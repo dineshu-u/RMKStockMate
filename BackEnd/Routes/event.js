@@ -4,9 +4,6 @@ const { validateEventPayload } = require('../utils/eventValidation');
 const router = express.Router();
 
 router.post('/addevent', (req, res) => {
-  console.log("REQUEST BODY IS ", req.body);
-  const { event_name, institution, event_date, meal_details, no_of_people } = req.body || {};
-
   // Backward-compatible validation: valid payloads behave exactly as before,
   // malformed ones are rejected with 400 instead of being stored.
   const validation = validateEventPayload(req.body);
@@ -14,21 +11,60 @@ router.post('/addevent', (req, res) => {
     return res.status(400).json({ message: validation.message });
   }
 
+  const { event_name, event_date, meal_details, no_of_people } = req.body || {};
+  const institution = validation.institution;
   const day = validation.day;
 
-  const sqlInsert = `
-    INSERT INTO events(event_name, institution, event_date, meal_details,day,no_of_people)
-    VALUES (?, ?, ?, ?,?,?)
-  `;
+  const insertEvent = () => {
+    const sqlInsert = `
+      INSERT INTO events(event_name, institution, event_date, meal_details,day,no_of_people)
+      VALUES (?, ?, ?, ?,?,?)
+    `;
 
-  db.query(sqlInsert, [event_name, institution, event_date, JSON.stringify(meal_details), day, no_of_people], (err, result) => {
+    db.query(sqlInsert, [event_name, institution, event_date, JSON.stringify(meal_details), day, no_of_people], (err, result) => {
+      if (err) {
+        console.error("Error inserting event details:", err);
+        res.status(500).send("Error inserting event details");
+      } else {
+        console.log("Event details inserted successfully:", result.insertId);
+        res.status(200).send("Event details inserted successfully");
+      }
+    });
+  };
+
+  // Meal items may reference the event item catalogue (itemId inside the
+  // meal_details JSON). Payloads without ids - including anything written before
+  // the catalogue existed - skip this check entirely and behave exactly as
+  // before. Ids that are sent must exist, so a stale selection can never be
+  // stored as a dangling reference.
+  const itemIds = [
+    ...new Set(
+      (Array.isArray(meal_details) ? meal_details : [])
+        .flatMap((meal) => (Array.isArray(meal?.items) ? meal.items : []))
+        .map((item) => Number(item?.itemId))
+        .filter((id) => Number.isInteger(id) && id > 0)
+    ),
+  ];
+
+  if (itemIds.length === 0) {
+    return insertEvent();
+  }
+
+  db.query('SELECT id FROM event_items WHERE id IN (?)', [itemIds], (err, rows) => {
     if (err) {
-      console.error("Error inserting event details:", err);
-      res.status(500).send("Error inserting event details");
-    } else {
-      console.log("Event details inserted successfully:", result);
-      res.status(200).send("Event details inserted successfully");
+      console.error("Error checking event items:", err);
+      return res.status(500).send("Error inserting event details");
     }
+
+    const known = new Set(rows.map((row) => row.id));
+    const unknown = itemIds.filter((id) => !known.has(id));
+    if (unknown.length > 0) {
+      return res.status(400).json({
+        message: `Unknown event item id(s): ${unknown.join(', ')}. Reload the event item list and try again.`,
+      });
+    }
+
+    return insertEvent();
   });
 });
 

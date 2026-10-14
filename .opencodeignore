@@ -1,0 +1,6 @@
+ode_modules/
+.git/
+.venv/
+dist/
+build/
+*.log

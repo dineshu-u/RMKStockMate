@@ -14,7 +14,7 @@ import {
   MEAL_TYPES,
   ITEM_TYPES,
   INSTITUTION_ENDPOINT,
-  ITEM_ENDPOINT,
+  EVENT_ITEM_ENDPOINT,
   createMealSection,
   deriveDayFromDate,
   sanitizePeopleInput,
@@ -26,9 +26,11 @@ import {
   updateItem,
   removeItem,
   normalizeInstitutions,
-  normalizeStockItems,
-  itemNameSet,
-  filterStockItems,
+  normalizeEventItems,
+  eventItemIdSet,
+  filterEventItems,
+  normalizeItemName,
+  validateEventItemDraft,
   validateEventForm,
   buildEventPayload,
 } from '../utils/eventForm';
@@ -148,6 +150,7 @@ const Banner = styled.div`
   border-radius: 6px;
   padding: 10px 14px;
   font-size: 0.88rem;
+  margin-bottom: 12px;
 
   button {
     border: 1px solid #164863;
@@ -192,7 +195,7 @@ const ItemCount = styled.span`
 const ItemGrid = styled.div`
   display: grid;
   grid-template-columns:
-    minmax(0, 3fr) minmax(90px, 1fr) minmax(120px, 1.1fr) minmax(70px, 0.7fr)
+    minmax(0, 3fr) minmax(110px, 1.1fr) minmax(140px, 1.2fr)
     130px;
   gap: 12px;
   align-items: center;
@@ -242,18 +245,6 @@ const CellLabel = styled(Label)`
     white-space: nowrap;
     border: 0;
   }
-`;
-
-const UnitBox = styled.output`
-  padding: 10px;
-  border: 1px dashed #cbd5e1;
-  border-radius: 4px;
-  background: #f8fafc;
-  color: #475569;
-  font-size: 0.95rem;
-  min-height: 19px;
-  display: flex;
-  align-items: center;
 `;
 
 const Button = styled.button`
@@ -346,6 +337,44 @@ const VisuallyHidden = styled.span`
   border: 0;
 `;
 
+// --- inline "add event item" dialog -----------------------------------------
+
+const ModalBackdrop = styled.div`
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 60;
+`;
+
+const ModalPanel = styled.div`
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 18px 20px 16px;
+  width: 100%;
+  max-width: 430px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+`;
+
+const ModalTitle = styled.h3`
+  margin: 0;
+  font-size: 1.05rem;
+  color: #164863;
+`;
+
+const ModalActions = styled.div`
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 2px;
+`;
+
 const ItemError = ({ id, message }) =>
   message ? (
     <ErrorText id={id} role="alert">
@@ -353,16 +382,16 @@ const ItemError = ({ id, message }) =>
     </ErrorText>
   ) : null;
 
-const formatApiError = (error) => {
+const formatApiError = (error, fallback = 'There was an error submitting the form. Please try again.') => {
   const data = error?.response?.data;
-  if (!data) return 'There was an error submitting the form. Please try again.';
+  if (!data) return fallback;
   if (typeof data === 'string') return data;
-  return data.message || data.error || 'There was an error submitting the form. Please try again.';
+  return data.message || data.error || fallback;
 };
 
 const AddEvent = () => {
   const [eventName, setEventName] = useState('');
-  const [institution, setInstitution] = useState('');
+  const [institution, setInstitution] = useState([]); // multi-select: array of institution names
   const [eventDate, setEventDate] = useState(null);
   const [noOfPeople, setNoOfPeople] = useState('');
   const [mealSections, setMealSections] = useState([createMealSection()]);
@@ -376,10 +405,14 @@ const AddEvent = () => {
   const [institutionsLoading, setInstitutionsLoading] = useState(true);
   const [institutionsNotice, setInstitutionsNotice] = useState('');
 
-  // Stock items: the master item list from the existing item endpoint.
-  const [stockItems, setStockItems] = useState([]);
+  // Event items: the event meal ingredient catalogue (GET /eventItems). Kept
+  // separate from the inventory master list on purpose.
+  const [eventItems, setEventItems] = useState([]);
   const [itemsLoading, setItemsLoading] = useState(true);
   const [itemsError, setItemsError] = useState('');
+
+  // The inline "add a missing item" dialog. null when closed.
+  const [addItemDraft, setAddItemDraft] = useState(null);
 
   const mealsRef = useRef(null);
   // Synchronous guard: `submitting` state alone cannot stop a second submit that
@@ -403,20 +436,16 @@ const AddEvent = () => {
     }
   }, []);
 
-  const loadStockItems = useCallback(async () => {
+  const loadEventItems = useCallback(async () => {
     setItemsLoading(true);
     setItemsError('');
     try {
-      const response = await axios.get(`${API_URL}${ITEM_ENDPOINT}`);
-      const normalized = normalizeStockItems(response.data);
-      setStockItems(normalized);
-      if (normalized.length === 0) {
-        setItemsError('The stock item list is empty. Add items on the Add Items page first.');
-      }
+      const response = await axios.get(`${API_URL}${EVENT_ITEM_ENDPOINT}`);
+      setEventItems(normalizeEventItems(response.data));
     } catch (error) {
-      console.error('Error fetching stock items:', error);
-      setStockItems([]);
-      setItemsError('Could not load the stock item list. Check the server connection and retry.');
+      console.error('Error fetching event items:', error);
+      setEventItems([]);
+      setItemsError('Could not load the event item list. Check the server connection and retry.');
     } finally {
       setItemsLoading(false);
     }
@@ -424,32 +453,45 @@ const AddEvent = () => {
 
   useEffect(() => {
     loadInstitutions();
-    loadStockItems();
-  }, [loadInstitutions, loadStockItems]);
+    loadEventItems();
+  }, [loadInstitutions, loadEventItems]);
+
+  // Escape closes the add-item dialog; the event form underneath is untouched.
+  useEffect(() => {
+    if (!addItemDraft) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setAddItemDraft(null);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [addItemDraft]);
 
   const institutionOptions = useMemo(
     () => institutions.map((name) => ({ value: name, label: name })),
     [institutions]
   );
 
+  // The option value is the catalogue id (as a string, because a DOM value is a
+  // string); the label is the name. Identity is never the display name.
   const itemOptions = useMemo(
-    () => stockItems.map((item) => ({ value: item.name, label: item.name, meta: item.category })),
-    [stockItems]
+    () =>
+      eventItems.map((item) => ({ value: String(item.id), label: item.name })),
+    [eventItems]
   );
 
-  const itemNames = useMemo(() => itemNameSet(stockItems), [stockItems]);
+  const allowedItemIds = useMemo(() => eventItemIdSet(eventItems), [eventItems]);
 
-  // Ranked client-side filtering (no request per keystroke: the whole list is
-  // already loaded and the app already filters this list client-side).
+  // Ranked client-side filtering (no request per keystroke: the whole catalogue
+  // is already loaded and the app already filters lists client-side).
   const itemFilterFn = useCallback(
     (options, query) => {
-      const { matches } = filterStockItems(stockItems, query, 50);
-      const rank = new Map(matches.map((m, index) => [m.name, index]));
+      const { matches } = filterEventItems(eventItems, query, 50);
+      const rank = new Map(matches.map((m, index) => [m.id, index]));
       return options
-        .filter((option) => rank.has(option.value))
-        .sort((a, b) => rank.get(a.value) - rank.get(b.value));
+        .filter((option) => rank.has(Number(option.value)))
+        .sort((a, b) => rank.get(Number(a.value)) - rank.get(Number(b.value)));
     },
-    [stockItems]
+    [eventItems]
   );
 
   const formState = { eventName, institution, eventDate, noOfPeople, mealSections };
@@ -458,49 +500,128 @@ const AddEvent = () => {
     () =>
       validateEventForm(
         { eventName, institution, eventDate, noOfPeople, mealSections },
-        itemNames,
+        allowedItemIds,
         institutions
       ),
-    [eventName, institution, eventDate, noOfPeople, mealSections, itemNames, institutions]
+    [eventName, institution, eventDate, noOfPeople, mealSections, allowedItemIds, institutions]
   );
 
   // Errors are only shown after the first submit attempt, then stay live so a
   // corrected field clears immediately.
   const shownErrors = submitAttempted ? errors : null;
 
-  const scrollToRef = useCallback(
-    (ref) => {
-      if (!ref) return;
-      if (ref === 'meals') {
-        mealsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        return;
-      }
-      const element = document.getElementById(ref === 'eventName' ? 'event-name' : ref === 'institution' ? 'event-institution' : ref === 'eventDate' ? 'event-date' : ref === 'noOfPeople' ? 'event-people' : `meal-${ref}`);
-      if (element) {
-        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        element.focus?.({ preventScroll: true });
-      }
-    },
-    []
-  );
+  const scrollToRef = useCallback((ref) => {
+    if (!ref) return;
+    if (ref === 'meals') {
+      mealsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    const element = document.getElementById(
+      ref === 'eventName'
+        ? 'event-name'
+        : ref === 'institution'
+          ? 'event-institution'
+          : ref === 'eventDate'
+            ? 'event-date'
+            : ref === 'noOfPeople'
+              ? 'event-people'
+              : `meal-${ref}`
+    );
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      element.focus?.({ preventScroll: true });
+    }
+  }, []);
 
-  const handleItemSelect = (mealUid, itemUid, selectedName) => {
-    const stock = stockItems.find((item) => item.name === selectedName);
+  // Selecting an item stores its catalogue id and copies the item's display
+  // name onto the row.
+  const handleItemSelect = (mealUid, itemUid, selectedValue) => {
+    const chosen = eventItems.find((item) => String(item.id) === String(selectedValue));
     setMealSections((prev) =>
       updateItem(prev, mealUid, itemUid, {
-        name: selectedName,
-        // Metadata comes straight from the stock record.
-        category: stock?.category ?? '',
-        // Populated only when the stock record actually exposes a unit.
-        unit: stock?.unit ?? '',
+        itemId: chosen ? chosen.id : '',
+        name: chosen ? chosen.name : '',
       })
     );
+  };
+
+  const openAddItem = (mealUid, itemUid, query) => {
+    setAddItemDraft({
+      mealUid,
+      itemUid,
+      name: normalizeItemName(query),
+      errors: { name: '' },
+      saving: false,
+      error: '',
+    });
+  };
+
+  const handleAddItemField = (patch) => {
+    setAddItemDraft((prev) => (prev ? { ...prev, ...patch, error: '' } : prev));
+  };
+
+  const handleSaveNewItem = async () => {
+    if (!addItemDraft || addItemDraft.saving) return;
+
+    const validation = validateEventItemDraft({ name: addItemDraft.name });
+    if (!validation.valid) {
+      setAddItemDraft((prev) => (prev ? { ...prev, errors: validation.errors } : prev));
+      return;
+    }
+
+    setAddItemDraft((prev) => (prev ? { ...prev, saving: true, error: '' } : prev));
+
+    try {
+      const response = await axios.post(`${API_URL}${EVENT_ITEM_ENDPOINT}`, {
+        name: validation.name,
+      });
+
+      const created = normalizeEventItems({ items: [response.data?.item] })[0];
+      if (!created) throw new Error('The server did not return the saved item.');
+
+      // Refresh the catalogue locally (without re-fetching) so the new item is
+      // immediately selectable; a duplicate response is already in the list.
+      setEventItems((prev) =>
+        prev.some((item) => item.id === created.id)
+          ? prev
+          : [...prev, created].sort((a, b) => a.name.localeCompare(b.name))
+      );
+
+      // Select it in the row that opened the dialog. Everything else - other
+      // meals, other rows, and every event field - is left as it was.
+      setMealSections((prev) =>
+        updateItem(prev, addItemDraft.mealUid, addItemDraft.itemUid, {
+          itemId: created.id,
+          name: created.name,
+        })
+      );
+
+      if (response.data?.duplicate) {
+        toast.info(response.data.message || 'That item already existed; it has been selected.');
+      } else {
+        toast.success(`"${created.name}" added to the event item list.`);
+      }
+
+      setAddItemDraft(null);
+    } catch (error) {
+      console.error('Error creating event item:', error);
+      // Keep the typed name so the user can retry.
+      setAddItemDraft((prev) =>
+        prev
+          ? {
+              ...prev,
+              saving: false,
+              error: formatApiError(error, 'Could not save the item. Please try again.'),
+            }
+          : prev
+      );
+    }
   };
 
   const handleDeleteItem = (mealUid, itemUid) => {
     const meal = mealSections.find((s) => s.uid === mealUid);
     const item = meal?.items.find((i) => i.uid === itemUid);
-    if (item && (item.name || item.quantity)) {
+    if (item && (item.itemId || item.quantity)) {
       if (!window.confirm('Remove this item from the meal?')) return;
     }
     setMealSections((prev) => removeItem(prev, mealUid, itemUid));
@@ -509,18 +630,19 @@ const AddEvent = () => {
   const handleDeleteMeal = (mealUid) => {
     const meal = mealSections.find((s) => s.uid === mealUid);
     const hasData =
-      !!meal && (!!meal.mealType || meal.items.some((item) => item.name || item.quantity));
+      !!meal && (!!meal.mealType || meal.items.some((item) => item.itemId || item.quantity));
     if (hasData && !window.confirm('Delete this meal and all its items?')) return;
     setMealSections((prev) => removeMeal(prev, mealUid));
   };
 
   const resetForm = () => {
     setEventName('');
-    setInstitution('');
+    setInstitution([]);
     setEventDate(null);
     setNoOfPeople('');
     setMealSections([createMealSection()]);
     setSubmitAttempted(false);
+    setAddItemDraft(null);
   };
 
   const handleSubmit = async (event) => {
@@ -532,11 +654,11 @@ const AddEvent = () => {
       setSubmitAttempted(true);
 
       if (itemsError) {
-        toast.error('The stock item list is unavailable. Retry loading the items before submitting.');
+        toast.error('The event item list is unavailable. Retry loading the items before submitting.');
         return;
       }
 
-      const result = validateEventForm(formState, itemNames, institutions);
+      const result = validateEventForm(formState, allowedItemIds, institutions);
       if (!result.valid) {
         scrollToRef(result.firstInvalidRef);
         toast.error('Please fix the highlighted fields before submitting.');
@@ -560,6 +682,8 @@ const AddEvent = () => {
       submitLockRef.current = false;
     }
   };
+
+  const catalogueEmpty = !itemsLoading && !itemsError && eventItems.length === 0;
 
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
@@ -588,10 +712,11 @@ const AddEvent = () => {
               </Label>
               <SearchableSelect
                 id="event-institution"
+                multiple
                 value={institution}
                 onChange={setInstitution}
                 options={institutionOptions}
-                placeholder={institutionsLoading ? 'Loading institutions…' : 'Search institution'}
+                placeholder={institutionsLoading ? 'Loading institutions…' : 'Search & select institutions'}
                 required
                 loading={institutionsLoading}
                 loadError={institutionsNotice}
@@ -658,19 +783,22 @@ const AddEvent = () => {
 
         <Section ref={mealsRef} id="event-meals">
           <SectionTitle>Meal Details</SectionTitle>
-          <Hint>
-            Items are chosen from the existing stock item list. The Unit column shows the unit on
-            the stock record when it has one; the current stock tables do not store a unit, so
-            quantities are recorded as plain numbers.
-          </Hint>
 
-          {itemsLoading && <Banner>Loading stock items…</Banner>}
+          {itemsLoading && <Banner>Loading event items…</Banner>}
           {!itemsLoading && itemsError && (
             <Banner>
               <span role="alert">{itemsError}</span>
-              <button type="button" onClick={loadStockItems}>
+              <button type="button" onClick={loadEventItems}>
                 Retry
               </button>
+            </Banner>
+          )}
+          {catalogueEmpty && (
+            <Banner>
+              <span>
+                The event item list is empty. Type an item name in the Item box below and choose{' '}
+                <strong>Add “…”</strong> to create the first one.
+              </span>
             </Banner>
           )}
 
@@ -680,13 +808,9 @@ const AddEvent = () => {
 
           {mealSections.map((mealSection) => {
             const mealErrors = shownErrors?.meals?.[mealSection.uid];
-            const filledItems = mealSection.items.filter((item) => item.name).length;
+            const filledItems = mealSection.items.filter((item) => item.itemId).length;
             return (
-              <MealSection
-                key={mealSection.uid}
-                id={`meal-${mealSection.uid}`}
-                tabIndex={-1}
-              >
+              <MealSection key={mealSection.uid} id={`meal-${mealSection.uid}`} tabIndex={-1}>
                 <MealHeader>
                   <FormGroup className="meal-type">
                     <Label htmlFor={`meal-type-${mealSection.uid}`}>Meal Type *</Label>
@@ -733,16 +857,13 @@ const AddEvent = () => {
                   </ItemCount>
                 </MealHeader>
 
-                {mealErrors?.items?.general && (
-                  <ItemError message={mealErrors.items.general} />
-                )}
+                {mealErrors?.items?.general && <ItemError message={mealErrors.items.general} />}
 
                 {mealSection.items.length > 0 && (
                   <ItemGridHead aria-hidden="true">
                     <span>Item</span>
                     <span>Quantity</span>
                     <span>Type</span>
-                    <span>Unit</span>
                     <span />
                   </ItemGridHead>
                 )}
@@ -756,22 +877,23 @@ const AddEvent = () => {
                         <CellLabel htmlFor={`item-name-${base}`}>Item *</CellLabel>
                         <SearchableSelect
                           id={`item-name-${base}`}
-                          value={item.name}
-                          onChange={(value) => handleItemSelect(mealSection.uid, item.uid, value)}
+                          value={item.itemId ? String(item.itemId) : ''}
+                          onChange={(value) =>
+                            handleItemSelect(mealSection.uid, item.uid, value)
+                          }
                           options={itemOptions}
-                          placeholder={itemsLoading ? 'Loading stock items…' : 'Search stock item'}
+                          placeholder={itemsLoading ? 'Loading event items…' : 'Search event item'}
                           required
                           loading={itemsLoading}
                           loadError={itemsError}
-                          onRetry={loadStockItems}
+                          onRetry={loadEventItems}
                           filterFn={itemFilterFn}
+                          allowCreate
+                          onCreateNew={(query) => openAddItem(mealSection.uid, item.uid, query)}
                           invalid={!!itemErrors?.name}
                           describedBy={itemErrors?.name ? `item-name-error-${base}` : undefined}
                         />
-                        <ItemError
-                          id={`item-name-error-${base}`}
-                          message={itemErrors?.name}
-                        />
+                        <ItemError id={`item-name-error-${base}`} message={itemErrors?.name} />
                       </Cell>
 
                       <Cell>
@@ -794,10 +916,7 @@ const AddEvent = () => {
                             itemErrors?.quantity ? `item-qty-error-${base}` : undefined
                           }
                         />
-                        <ItemError
-                          id={`item-qty-error-${base}`}
-                          message={itemErrors?.quantity}
-                        />
+                        <ItemError id={`item-qty-error-${base}`} message={itemErrors?.quantity} />
                       </Cell>
 
                       <Cell>
@@ -825,20 +944,7 @@ const AddEvent = () => {
                             </option>
                           ))}
                         </Select>
-                        <ItemError
-                          id={`item-type-error-${base}`}
-                          message={itemErrors?.type}
-                        />
-                      </Cell>
-
-                      <Cell>
-                        <CellLabel htmlFor={`item-unit-${base}`}>Unit</CellLabel>
-                        <UnitBox
-                          id={`item-unit-${base}`}
-                          title="Unit from the stock record, when the stock data provides one"
-                        >
-                          {item.unit || '—'}
-                        </UnitBox>
+                        <ItemError id={`item-type-error-${base}`} message={itemErrors?.type} />
                       </Cell>
 
                       <Cell>
@@ -868,6 +974,67 @@ const AddEvent = () => {
           </SubmitButton>
         </Actions>
       </Form>
+
+      {addItemDraft && (
+        <ModalBackdrop
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setAddItemDraft(null);
+          }}
+        >
+          <ModalPanel
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="add-event-item-title"
+          >
+            <ModalTitle id="add-event-item-title">Add a new event item</ModalTitle>
+            <Hint style={{ margin: 0 }}>
+              This adds the item to the event item list only. Inventory stock is not affected.
+            </Hint>
+
+            <FormGroup>
+              <Label htmlFor="new-item-name">Item Name *</Label>
+              <Input
+                id="new-item-name"
+                type="text"
+                autoFocus
+                maxLength={160}
+                value={addItemDraft.name}
+                onChange={(e) =>
+                  setAddItemDraft((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          name: e.target.value,
+                          error: '',
+                          errors: { ...prev.errors, name: '' },
+                        }
+                      : prev
+                  )
+                }
+                aria-invalid={addItemDraft.errors.name ? true : undefined}
+                aria-describedby={addItemDraft.errors.name ? 'new-item-name-error' : undefined}
+              />
+              <ItemError id="new-item-name-error" message={addItemDraft.errors.name} />
+            </FormGroup>
+
+            {addItemDraft.error && <ItemError id="new-item-error" message={addItemDraft.error} />}
+
+            <ModalActions>
+              <GhostButton type="button" onClick={() => setAddItemDraft(null)}>
+                Cancel
+              </GhostButton>
+              <SubmitButton
+                type="button"
+                onClick={handleSaveNewItem}
+                disabled={addItemDraft.saving}
+              >
+                {addItemDraft.saving ? 'Saving…' : 'Save Item'}
+              </SubmitButton>
+            </ModalActions>
+          </ModalPanel>
+        </ModalBackdrop>
+      )}
+
       <ToastContainer />
     </LocalizationProvider>
   );
