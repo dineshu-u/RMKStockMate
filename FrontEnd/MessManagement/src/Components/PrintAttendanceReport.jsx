@@ -524,7 +524,7 @@ const PrintAttendanceReport = () => {
     const wb = XLSX.utils.book_new();
     tables.forEach((table, idx) => {
       let sheetName = table.closest('[data-sheetname]')?.getAttribute('data-sheetname') || `Sheet_${idx + 1}`;
-      sheetName = sheetName.replace(/[\\/*?:[\]]/g, '').slice(0, 31);
+      sheetName = sheetName.replace(/[\\/*?:[\\]]/g, '').slice(0, 31);
       if (wb.SheetNames.includes(sheetName)) {
         const base = sheetName.slice(0, 27);
         let n = 2;
@@ -585,9 +585,6 @@ const PrintAttendanceReport = () => {
   // ---------------- Renderers ----------------
 
   const renderDaily = data => {
-    if (data.institutions.length === 0) {
-      return <EmptyMessage>No attendance data matches the selected filters for this date.</EmptyMessage>;
-    }
     const catIds = [];
     const catNames = {};
     data.institutions.forEach(inst =>

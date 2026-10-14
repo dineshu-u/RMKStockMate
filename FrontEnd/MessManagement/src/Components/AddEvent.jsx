@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import PropTypes from 'prop-types';
 import styled from 'styled-components';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
@@ -7,39 +8,103 @@ import axios from 'axios';
 import dayjs from 'dayjs';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import { FaExclamationCircle, FaPlus, FaTrash, FaTimes } from 'react-icons/fa';
 import SearchableSelect from './SearchableSelect';
-import {
-  INSTITUTIONS,
-  MEAL_TYPES,
-  ITEM_TYPES,
-  INSTITUTION_ENDPOINT,
-  ITEM_ENDPOINT,
-  createMealSection,
-  deriveDayFromDate,
-  sanitizePeopleInput,
-  sanitizeQuantityInput,
-  addMeal,
-  updateMeal,
-  removeMeal,
-  addItem,
-  updateItem,
-  removeItem,
-  normalizeInstitutions,
-  normalizeStockItems,
-  itemNameSet,
-  filterStockItems,
-  validateEventForm,
-  buildEventPayload,
-} from '../utils/eventForm';
 
 const API_URL = import.meta.env.VITE_RMK_MESS_URL;
 
+const MEAL_TYPES = ['Breakfast', 'Lunch', 'Dinner', 'Snacks', 'Beverages'];
+const ITEM_TYPES = ['Veg', 'Non-Veg', 'Common'];
+
+// Approved institutions. The list is refreshed from the attendance
+// configuration API on load; these values match the seeded
+// attendance_institutions table and act as the offline fallback.
+const FALLBACK_INSTITUTIONS = [
+  'RMK',
+  'RMD',
+  'RMK-CET',
+  'RMK Residential',
+  'RMK Mat. School',
+  'SDPC',
+  'RMK School / Thiruverkadu',
+  'RMK Pathasala',
+];
+
+const MAX_NO_OF_PEOPLE = 2147483647; // upper bound of a MySQL INT column
+
+// ---------------------------------------------------------------------
+// Pure validation - returns an errors object whose keys are inserted in
+// document order, so the first key is the first invalid field.
+// ---------------------------------------------------------------------
+const validateState = ({ eventName, institution, eventDate, noOfPeople, mealSections }) => {
+  const errs = {};
+  const addErr = (key, msg) => {
+    if (!errs[key]) errs[key] = msg;
+  };
+
+  if (!eventName.trim()) addErr('eventName', 'Event name is required.');
+  if (!institution) addErr('institution', 'Please select an institution.');
+  if (!eventDate || !dayjs.isDayjs(eventDate) || !eventDate.isValid()) {
+    addErr('eventDate', 'Please select a valid date.');
+  }
+
+  if (String(noOfPeople).trim() === '') {
+    addErr('noOfPeople', 'Number of people is required.');
+  } else {
+    const n = Number(noOfPeople);
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1 || n > MAX_NO_OF_PEOPLE) {
+      addErr('noOfPeople', 'Enter a positive whole number.');
+    }
+  }
+
+  if (mealSections.length === 0) addErr('meals', 'Add at least one meal.');
+
+  mealSections.forEach((section) => {
+    if (!section.mealType) addErr(`${section.id}-mealType`, 'Select a meal type.');
+    section.items.forEach((item) => {
+      if (!item.name) addErr(`${item.id}-name`, 'Select an item from the stock list.');
+      const q = String(item.quantity).trim();
+      if (q === '') {
+        addErr(`${item.id}-quantity`, 'Quantity is required.');
+      } else {
+        const num = Number(q);
+        if (!Number.isFinite(num) || num <= 0) {
+          addErr(`${item.id}-quantity`, 'Quantity must be a number greater than 0.');
+        }
+      }
+      if (!item.type) addErr(`${item.id}-type`, 'Select a type.');
+    });
+  });
+
+  return errs;
+};
+
+const isBlankItem = (item) =>
+  !item.name && String(item.quantity).trim() === '' && !item.type;
+
+const isBlankMeal = (section) =>
+  !section.mealType && section.items.every(isBlankItem);
+
+const cleanQuantity = (raw) => {
+  let out = '';
+  let dotSeen = false;
+  for (const ch of String(raw)) {
+    if (ch >= '0' && ch <= '9') out += ch;
+    else if (ch === '.' && !dotSeen) {
+      out += ch;
+      dotSeen = true;
+    }
+  }
+  return out;
+};
+
+// ---------------------------------------------------------------------
+// Styles
+// ---------------------------------------------------------------------
 const Form = styled.form`
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  max-width: 1000px;
+  gap: 20px;
+  max-width: 900px;
   margin: 20px auto;
   padding: 20px;
   border-radius: 8px;
@@ -47,36 +112,34 @@ const Form = styled.form`
 `;
 
 const Section = styled.div`
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 `;
 
 const Heading = styled.h1`
-  font-size: 1.4rem;
+  font-size: 1.2rem;
   font-weight: bold;
-  margin: 0 0 16px 0;
+  margin-bottom: 10px;
   color: #164863;
 `;
 
 const SectionTitle = styled.h2`
   font-size: 1.2rem;
   font-weight: bold;
-  margin: 0 0 6px 0;
+  margin-bottom: 10px;
   color: #164863;
 `;
 
-const Hint = styled.p`
-  margin: 0 0 12px 0;
-  color: #64748b;
-  font-size: 0.82rem;
-`;
-
-const Grid = styled.div`
+const EventDetailsGrid = styled.div`
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 20px;
+  margin-bottom: 20px;
+  @media (max-width: 680px) {
+    grid-template-columns: 1fr;
+  }
 `;
 
-const FormGroup = styled.div`
+const FieldGroup = styled.div`
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -86,39 +149,37 @@ const FormGroup = styled.div`
 const Label = styled.label`
   font-weight: bold;
   color: #164863;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
 `;
 
 const Input = styled.input`
   padding: 10px;
-  border: 1px solid ${(p) => (p['aria-invalid'] ? '#d9534f' : '#ccc')};
+  border: 1px solid ${(props) => (props.$invalid ? '#d32f2f' : '#ccc')};
   border-radius: 4px;
   font-size: 1rem;
   background: white;
   width: 100%;
   box-sizing: border-box;
-
   &:focus {
     border-color: #007bff;
     outline: none;
     box-shadow: 0 0 5px #164863;
   }
-
   &:read-only {
-    background: #f4f4f4;
-    color: #334155;
+    background: #f4f7f9;
+    color: #46617a;
+    cursor: default;
   }
 `;
 
 const Select = styled.select`
   padding: 10px;
-  border: 1px solid ${(p) => (p['aria-invalid'] ? '#d9534f' : '#ccc')};
+  border: 1px solid ${(props) => (props.$invalid ? '#d32f2f' : '#ccc')};
   border-radius: 4px;
   font-size: 1rem;
   background: white;
   width: 100%;
   box-sizing: border-box;
-
   &:focus {
     border-color: #007bff;
     outline: none;
@@ -126,48 +187,33 @@ const Select = styled.select`
   }
 `;
 
-const ErrorText = styled.p`
-  margin: 0;
-  color: #b00020;
-  font-size: 0.8rem;
-  display: flex;
-  align-items: center;
-  gap: 5px;
+const FieldError = styled.span`
+  color: #d32f2f;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 4px 0 0;
 `;
 
-const Banner = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  border: 1px solid #f0c36d;
-  border-left: 5px solid #f0c36d;
-  background: #fffbf0;
-  color: #7a5b00;
+const FormError = styled.div`
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
   border-radius: 6px;
-  padding: 10px 14px;
-  font-size: 0.88rem;
-
-  button {
-    border: 1px solid #164863;
-    background: white;
-    color: #164863;
-    border-radius: 16px;
-    padding: 4px 14px;
-    font-size: 0.82rem;
-    cursor: pointer;
-  }
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: 12px;
 `;
 
 const MealSection = styled.div`
+  display: flex;
+  flex-direction: column;
   border: 1px solid #ddd;
   padding: 14px;
   border-radius: 8px;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
   background-color: #ffffff;
   box-shadow: 0 0 10px rgba(0, 0, 0, 0.05);
-  scroll-margin-top: 90px;
 `;
 
 const MealHeader = styled.div`
@@ -175,85 +221,26 @@ const MealHeader = styled.div`
   align-items: flex-end;
   gap: 10px;
   flex-wrap: wrap;
-  padding-bottom: 10px;
-  border-bottom: 1px solid #eee;
+  margin-bottom: 12px;
+`;
 
-  .meal-type {
-    width: 190px;
-  }
+const MealTypeGroup = styled.div`
+  flex: 1 1 220px;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 `;
 
 const ItemCount = styled.span`
-  color: #64748b;
-  font-size: 0.82rem;
-  margin-left: auto;
-`;
-
-const ItemGrid = styled.div`
-  display: grid;
-  grid-template-columns:
-    minmax(0, 3fr) minmax(90px, 1fr) minmax(120px, 1.1fr) minmax(70px, 0.7fr)
-    130px;
-  gap: 12px;
-  align-items: center;
-  padding: 10px 0;
-  border-bottom: 1px solid #f1f5f9;
-
-  @media (max-width: 720px) {
-    grid-template-columns: 1fr;
-    gap: 8px;
-    padding: 14px 0;
-  }
-`;
-
-const ItemGridHead = styled(ItemGrid)`
-  border-bottom: 1px solid #ddd;
-  padding: 6px 0;
-  color: #164863;
-  font-size: 0.8rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-
-  @media (max-width: 720px) {
-    display: none;
-  }
-`;
-
-const Cell = styled.div`
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-`;
-
-// On desktop each row is identified by the column header, so the per-field label
-// is only visually hidden (still exposed to screen readers); on mobile the row
-// stacks and the labels become visible.
-const CellLabel = styled(Label)`
-  @media (min-width: 721px) {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
-  }
-`;
-
-const UnitBox = styled.output`
-  padding: 10px;
-  border: 1px dashed #cbd5e1;
-  border-radius: 4px;
-  background: #f8fafc;
-  color: #475569;
-  font-size: 0.95rem;
-  min-height: 19px;
-  display: flex;
-  align-items: center;
+  align-self: flex-end;
+  color: #46617a;
+  font-size: 0.85rem;
+  font-weight: 600;
+  background: #eef3f7;
+  border-radius: 12px;
+  padding: 4px 10px;
+  white-space: nowrap;
 `;
 
 const Button = styled.button`
@@ -265,611 +252,795 @@ const Button = styled.button`
   border: none;
   border-radius: 20px;
   font-size: 0.875rem;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
+  white-space: nowrap;
   transition: background-color 0.3s, transform 0.2s;
-
   &:hover:not(:disabled) {
     background-color: #1d4f6f;
-    transform: scale(1.03);
+    transform: scale(1.05);
   }
-
   &:disabled {
-    background-color: #94a3b8;
+    opacity: 0.6;
     cursor: not-allowed;
-  }
-`;
-
-const GhostButton = styled(Button)`
-  background-color: #ffffff;
-  color: #164863;
-  border: 1px solid #164863;
-
-  &:hover:not(:disabled) {
-    background-color: #eef4f8;
+    transform: none;
   }
 `;
 
 const DangerButton = styled(Button)`
-  background-color: #ffffff;
-  color: #b00020;
-  border: 1px solid #e2a0a8;
-  border-radius: 8px;
-  padding: 8px 10px;
-
+  background-color: #b91c1c;
   &:hover:not(:disabled) {
-    background-color: #fdf2f3;
+    background-color: #991b1b;
   }
 `;
 
-const RemoveButton = styled(Button)`
-  background-color: #ffffff;
-  color: #b00020;
-  border: 1px solid #e2a0a8;
-  border-radius: 6px;
-  padding: 9px 10px;
-
-  &:hover:not(:disabled) {
-    background-color: #fdf2f3;
+const RemoveRowButton = styled.button`
+  width: 34px;
+  height: 34px;
+  align-self: center;
+  border: 1px solid #e5b8b8;
+  border-radius: 50%;
+  background: white;
+  color: #b91c1c;
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+  &:hover {
+    background: #fef2f2;
+  }
+  &:focus-visible {
+    outline: 2px solid #164863;
+    outline-offset: 2px;
   }
 `;
 
-const SubmitButton = styled(Button)`
-  background-color: #4caf50;
-  border-radius: 6px;
-  padding: 11px 26px;
-  font-size: 1rem;
-
-  &:hover:not(:disabled) {
-    background-color: #45a049;
+const ItemHeaderRow = styled.div`
+  display: grid;
+  grid-template-columns: minmax(0, 2.4fr) minmax(110px, 0.9fr) minmax(130px, 1fr) 34px;
+  gap: 10px;
+  padding: 0 2px 6px;
+  span {
+    font-size: 0.8rem;
+    font-weight: bold;
+    color: #46617a;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  @media (max-width: 680px) {
+    display: none;
   }
 `;
 
-const Actions = styled.div`
+const ItemRow = styled.div`
+  display: grid;
+  grid-template-columns: minmax(0, 2.4fr) minmax(110px, 0.9fr) minmax(130px, 1fr) 34px;
+  gap: 10px;
+  align-items: start;
+  padding: 6px 2px;
+  border-bottom: 1px dashed #e8edf1;
+  &:last-of-type {
+    border-bottom: none;
+  }
+  @media (max-width: 680px) {
+    grid-template-columns: 1fr;
+    border: 1px solid #e8edf1;
+    border-radius: 6px;
+    padding: 10px;
+    margin-bottom: 10px;
+  }
+`;
+
+const Spacer = styled.span`
+  @media (max-width: 680px) {
+    display: none;
+  }
+`;
+
+const Holder = styled.div`
+  text-align: center;
   display: flex;
   justify-content: center;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
-  margin-top: 4px;
 `;
 
-const VisuallyHidden = styled.span`
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
+const EmptyStockNote = styled.p`
+  color: #46617a;
+  font-size: 0.9rem;
+  margin: 4px 0 0;
 `;
 
-const ItemError = ({ id, message }) =>
-  message ? (
-    <ErrorText id={id} role="alert">
-      <FaExclamationCircle aria-hidden="true" /> {message}
-    </ErrorText>
-  ) : null;
+const Overlay = styled.div`
+  position: fixed;
+  inset: 0;
+  background: rgba(22, 72, 99, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+`;
 
-const formatApiError = (error) => {
-  const data = error?.response?.data;
-  if (!data) return 'There was an error submitting the form. Please try again.';
-  if (typeof data === 'string') return data;
-  return data.message || data.error || 'There was an error submitting the form. Please try again.';
-};
+const Dialog = styled.div`
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  max-width: 380px;
+  width: 100%;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+`;
 
-const AddEvent = () => {
-  const [eventName, setEventName] = useState('');
-  const [institution, setInstitution] = useState('');
-  const [eventDate, setEventDate] = useState(null);
-  const [noOfPeople, setNoOfPeople] = useState('');
-  const [mealSections, setMealSections] = useState([createMealSection()]);
+const DialogTitle = styled.h3`
+  margin: 0 0 8px;
+  color: #164863;
+  font-size: 1.05rem;
+`;
 
-  const [submitAttempted, setSubmitAttempted] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+const DialogText = styled.p`
+  margin: 0 0 16px;
+  color: #333;
+  font-size: 0.92rem;
+`;
 
-  // Institutions: loaded from the existing attendance config endpoint (the app's
-  // single source of institution names), with the approved list as fallback.
-  const [institutions, setInstitutions] = useState(INSTITUTIONS);
-  const [institutionsLoading, setInstitutionsLoading] = useState(true);
-  const [institutionsNotice, setInstitutionsNotice] = useState('');
-
-  // Stock items: the master item list from the existing item endpoint.
-  const [stockItems, setStockItems] = useState([]);
-  const [itemsLoading, setItemsLoading] = useState(true);
-  const [itemsError, setItemsError] = useState('');
-
-  const mealsRef = useRef(null);
-  // Synchronous guard: `submitting` state alone cannot stop a second submit that
-  // happens before React re-renders the disabled button.
-  const submitLockRef = useRef(false);
-
-  const day = deriveDayFromDate(eventDate);
-
-  const loadInstitutions = useCallback(async () => {
-    setInstitutionsLoading(true);
-    setInstitutionsNotice('');
-    try {
-      const response = await axios.get(`${API_URL}${INSTITUTION_ENDPOINT}`);
-      setInstitutions(normalizeInstitutions(response.data));
-    } catch (error) {
-      console.error('Error fetching institutions:', error);
-      setInstitutions(INSTITUTIONS);
-      setInstitutionsNotice('Could not load institutions from the server; showing the approved list.');
-    } finally {
-      setInstitutionsLoading(false);
+const DialogActions = styled.div`
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  button {
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 0.875rem;
+    cursor: pointer;
+    border: 1px solid #164863;
+    background: white;
+    color: #164863;
+    &:hover {
+      background: #eef3f7;
     }
-  }, []);
-
-  const loadStockItems = useCallback(async () => {
-    setItemsLoading(true);
-    setItemsError('');
-    try {
-      const response = await axios.get(`${API_URL}${ITEM_ENDPOINT}`);
-      const normalized = normalizeStockItems(response.data);
-      setStockItems(normalized);
-      if (normalized.length === 0) {
-        setItemsError('The stock item list is empty. Add items on the Add Items page first.');
+    &.confirm {
+      background: #b91c1c;
+      border-color: #b91c1c;
+      color: white;
+      &:hover {
+        background: #991b1b;
       }
-    } catch (error) {
-      console.error('Error fetching stock items:', error);
-      setStockItems([]);
-      setItemsError('Could not load the stock item list. Check the server connection and retry.');
-    } finally {
-      setItemsLoading(false);
     }
+  }
+`;
+
+// ---------------------------------------------------------------------
+// Confirmation dialog for destructive actions
+// ---------------------------------------------------------------------
+const ConfirmDialog = ({ title, message, confirmLabel, onConfirm, onCancel }) => {
+  const cancelRef = useRef(null);
+
+  useEffect(() => {
+    cancelRef.current?.focus();
   }, []);
 
   useEffect(() => {
-    loadInstitutions();
-    loadStockItems();
-  }, [loadInstitutions, loadStockItems]);
+    const onKey = (e) => {
+      if (e.key === 'Escape') onCancel();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+
+  return (
+    <Overlay onClick={onCancel}>
+      <Dialog
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="confirm-dialog-title"
+        aria-describedby="confirm-dialog-desc"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <DialogTitle id="confirm-dialog-title">{title}</DialogTitle>
+        <DialogText id="confirm-dialog-desc">{message}</DialogText>
+        <DialogActions>
+          <button type="button" ref={cancelRef} onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="button" className="confirm" onClick={onConfirm}>
+            {confirmLabel}
+          </button>
+        </DialogActions>
+      </Dialog>
+    </Overlay>
+  );
+};
+
+ConfirmDialog.propTypes = {
+  title: PropTypes.string.isRequired,
+  message: PropTypes.string.isRequired,
+  confirmLabel: PropTypes.string.isRequired,
+  onConfirm: PropTypes.func.isRequired,
+  onCancel: PropTypes.func.isRequired,
+};
+
+// ---------------------------------------------------------------------
+// Add Event
+// ---------------------------------------------------------------------
+const AddEvent = () => {
+  const idCounter = useRef(0);
+  const nextId = (prefix) => `${prefix}-${++idCounter.current}`;
+  const makeItem = () => ({ id: nextId('item'), name: '', quantity: '', type: '' });
+  const makeMeal = () => ({ id: nextId('meal'), mealType: '', items: [makeItem()] });
+
+  const [eventName, setEventName] = useState('');
+  const [institution, setInstitution] = useState('');
+  const [eventDate, setEventDate] = useState(null);
+  const [day, setDay] = useState('');
+  const [noOfPeople, setNoOfPeople] = useState('');
+  const [mealSections, setMealSections] = useState(() => [makeMeal()]);
+  const [errors, setErrors] = useState({});
+  const [attemptedSubmit, setAttemptedSubmit] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState(null);
+
+  const [institutions, setInstitutions] = useState(FALLBACK_INSTITUTIONS);
+  const [stockItems, setStockItems] = useState([]);
+  const [stockLoading, setStockLoading] = useState(true);
+  const [stockError, setStockError] = useState('');
+
+  const fieldRefs = useRef({});
+  const dateWrapRef = useRef(null);
+  const mealsHeadingRef = useRef(null);
+  const setFieldRef = (key) => (el) => {
+    fieldRefs.current[key] = el;
+  };
+
+  // Approved institutions: prefer the live configuration source when it
+  // responds, keep the approved fallback list otherwise.
+  useEffect(() => {
+    let cancelled = false;
+    axios
+      .get(`${API_URL}/attendance/config`)
+      .then((res) => {
+        if (cancelled) return;
+        const names = (res?.data?.institutions || [])
+          .map((inst) => inst?.name)
+          .filter((n) => typeof n === 'string' && n.trim() !== '');
+        if (names.length > 0) setInstitutions(names);
+      })
+      .catch(() => {
+        // keep the approved fallback list
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const loadStock = () => {
+    setStockLoading(true);
+    setStockError('');
+    axios
+      .get(`${API_URL}/stocks/availablestock`)
+      .then((res) => {
+        const data = Array.isArray(res?.data?.data) ? res.data.data : [];
+        setStockItems(data);
+        setStockLoading(false);
+      })
+      .catch(() => {
+        setStockError('Could not load stock items.');
+        setStockLoading(false);
+      });
+  };
+
+  useEffect(() => {
+    loadStock();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const itemOptions = useMemo(
+    () =>
+      stockItems.map((s) => ({
+        value: s.itemName,
+        label: s.itemName,
+        meta: `${s.category} · Available: ${s.quantity}`,
+      })),
+    [stockItems]
+  );
 
   const institutionOptions = useMemo(
     () => institutions.map((name) => ({ value: name, label: name })),
     [institutions]
   );
 
-  const itemOptions = useMemo(
-    () => stockItems.map((item) => ({ value: item.name, label: item.name, meta: item.category })),
-    [stockItems]
-  );
+  // Derive the day from the selected date. dayjs formats in local time,
+  // so the weekday always matches the picked calendar date.
+  const handleDateChange = (newValue) => {
+    setEventDate(newValue);
+    if (newValue && dayjs.isDayjs(newValue) && newValue.isValid()) {
+      setDay(newValue.format('dddd'));
+    } else {
+      setDay('');
+    }
+    revalidate({ eventDate: newValue });
+  };
 
-  const itemNames = useMemo(() => itemNameSet(stockItems), [stockItems]);
+  const handlePeopleChange = (e) => {
+    if (e.target.validity && e.target.validity.badInput) return;
+    const v = e.target.value;
+    if (v === '' || /^\d+$/.test(v)) {
+      setNoOfPeople(v);
+      revalidate({ noOfPeople: v });
+    }
+  };
 
-  // Ranked client-side filtering (no request per keystroke: the whole list is
-  // already loaded and the app already filters this list client-side).
-  const itemFilterFn = useCallback(
-    (options, query) => {
-      const { matches } = filterStockItems(stockItems, query, 50);
-      const rank = new Map(matches.map((m, index) => [m.name, index]));
-      return options
-        .filter((option) => rank.has(option.value))
-        .sort((a, b) => rank.get(a.value) - rank.get(b.value));
-    },
-    [stockItems]
-  );
-
-  const formState = { eventName, institution, eventDate, noOfPeople, mealSections };
-
-  const { errors } = useMemo(
-    () =>
-      validateEventForm(
-        { eventName, institution, eventDate, noOfPeople, mealSections },
-        itemNames,
-        institutions
-      ),
-    [eventName, institution, eventDate, noOfPeople, mealSections, itemNames, institutions]
-  );
-
-  // Errors are only shown after the first submit attempt, then stay live so a
-  // corrected field clears immediately.
-  const shownErrors = submitAttempted ? errors : null;
-
-  const scrollToRef = useCallback(
-    (ref) => {
-      if (!ref) return;
-      if (ref === 'meals') {
-        mealsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        return;
-      }
-      const element = document.getElementById(ref === 'eventName' ? 'event-name' : ref === 'institution' ? 'event-institution' : ref === 'eventDate' ? 'event-date' : ref === 'noOfPeople' ? 'event-people' : `meal-${ref}`);
-      if (element) {
-        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        element.focus?.({ preventScroll: true });
-      }
-    },
-    []
-  );
-
-  const handleItemSelect = (mealUid, itemUid, selectedName) => {
-    const stock = stockItems.find((item) => item.name === selectedName);
-    setMealSections((prev) =>
-      updateItem(prev, mealUid, itemUid, {
-        name: selectedName,
-        // Metadata comes straight from the stock record.
-        category: stock?.category ?? '',
-        // Populated only when the stock record actually exposes a unit.
-        unit: stock?.unit ?? '',
+  const revalidate = (next) => {
+    if (!attemptedSubmit) return;
+    setErrors(
+      validateState({
+        eventName,
+        institution,
+        eventDate,
+        noOfPeople,
+        mealSections,
+        ...next,
       })
     );
   };
 
-  const handleDeleteItem = (mealUid, itemUid) => {
-    const meal = mealSections.find((s) => s.uid === mealUid);
-    const item = meal?.items.find((i) => i.uid === itemUid);
-    if (item && (item.name || item.quantity)) {
-      if (!window.confirm('Remove this item from the meal?')) return;
-    }
-    setMealSections((prev) => removeItem(prev, mealUid, itemUid));
+  // ----- meal / item state helpers (stable ids, explicit next state) -----
+  const addMeal = () => {
+    const next = [...mealSections, makeMeal()];
+    setMealSections(next);
+    revalidate({ mealSections: next });
   };
 
-  const handleDeleteMeal = (mealUid) => {
-    const meal = mealSections.find((s) => s.uid === mealUid);
-    const hasData =
-      !!meal && (!!meal.mealType || meal.items.some((item) => item.name || item.quantity));
-    if (hasData && !window.confirm('Delete this meal and all its items?')) return;
-    setMealSections((prev) => removeMeal(prev, mealUid));
+  const changeMealType = (mealId, value) => {
+    const next = mealSections.map((m) =>
+      m.id === mealId ? { ...m, mealType: value } : m
+    );
+    setMealSections(next);
+    revalidate({ mealSections: next });
+  };
+
+  const addItem = (mealId) => {
+    const next = mealSections.map((m) =>
+      m.id === mealId ? { ...m, items: [...m.items, makeItem()] } : m
+    );
+    setMealSections(next);
+    revalidate({ mealSections: next });
+  };
+
+  const changeItem = (mealId, itemId, field, value) => {
+    const next = mealSections.map((m) =>
+      m.id === mealId
+        ? {
+            ...m,
+            items: m.items.map((it) => (it.id === itemId ? { ...it, [field]: value } : it)),
+          }
+        : m
+    );
+    setMealSections(next);
+    revalidate({ mealSections: next });
+  };
+
+  const removeItem = (mealId, itemId) => {
+    const next = mealSections.map((m) =>
+      m.id === mealId ? { ...m, items: m.items.filter((it) => it.id !== itemId) } : m
+    );
+    setMealSections(next);
+    revalidate({ mealSections: next });
+  };
+
+  const removeMeal = (mealId) => {
+    const next = mealSections.filter((m) => m.id !== mealId);
+    setMealSections(next);
+    revalidate({ mealSections: next });
+  };
+
+  const requestDeleteMeal = (section) => {
+    if (isBlankMeal(section)) {
+      removeMeal(section.id);
+    } else {
+      setPendingDelete({
+        kind: 'meal',
+        mealId: section.id,
+        label: section.mealType || 'this meal',
+      });
+    }
+  };
+
+  const requestDeleteItem = (section, item) => {
+    if (isBlankItem(item)) {
+      removeItem(section.id, item.id);
+    } else {
+      setPendingDelete({
+        kind: 'item',
+        mealId: section.id,
+        itemId: item.id,
+        label: item.name || 'this item',
+      });
+    }
+  };
+
+  const focusFirstError = (errs) => {
+    const firstKey = Object.keys(errs)[0];
+    if (!firstKey) return;
+    if (firstKey === 'eventDate') {
+      const input = dateWrapRef.current?.querySelector('input');
+      input?.focus();
+      input?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    if (firstKey === 'meals') {
+      mealsHeadingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    const el = fieldRefs.current[firstKey];
+    if (el) {
+      el.focus();
+      el.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    }
   };
 
   const resetForm = () => {
     setEventName('');
     setInstitution('');
     setEventDate(null);
+    setDay('');
     setNoOfPeople('');
-    setMealSections([createMealSection()]);
-    setSubmitAttempted(false);
+    setMealSections([makeMeal()]);
+    setErrors({});
+    setAttemptedSubmit(false);
   };
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-    if (submitLockRef.current) return; // guards against duplicate submissions
-    submitLockRef.current = true;
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (submitting) return;
 
-    try {
-      setSubmitAttempted(true);
+    setAttemptedSubmit(true);
+    const errs = validateState({
+      eventName,
+      institution,
+      eventDate,
+      noOfPeople,
+      mealSections,
+    });
+    setErrors(errs);
 
-      if (itemsError) {
-        toast.error('The stock item list is unavailable. Retry loading the items before submitting.');
-        return;
-      }
+    if (Object.keys(errs).length > 0) {
+      focusFirstError(errs);
+      toast.error('Please fix the highlighted fields before submitting.');
+      return;
+    }
 
-      const result = validateEventForm(formState, itemNames, institutions);
-      if (!result.valid) {
-        scrollToRef(result.firstInvalidRef);
-        toast.error('Please fix the highlighted fields before submitting.');
-        return;
-      }
+    const payload = {
+      event_name: eventName.trim(),
+      institution,
+      event_date: eventDate.format('YYYY-MM-DD'),
+      day,
+      no_of_people: Number(noOfPeople),
+      meal_details: mealSections.map((section) => ({
+        mealType: section.mealType,
+        items: section.items.map((item) => ({
+          name: item.name,
+          quantity: String(Number(String(item.quantity).trim())),
+          type: item.type,
+        })),
+      })),
+    };
 
-      const payload = buildEventPayload(formState);
-      setSubmitting(true);
-      try {
-        await axios.post(`${API_URL}/event/addevent`, payload);
-        toast.success('Event added successfully.');
+    setSubmitting(true);
+    axios
+      .post(`${API_URL}/event/addevent`, payload)
+      .then(() => {
+        toast.success('Event added successfully!');
         window.scrollTo({ top: 0, behavior: 'smooth' });
         resetForm();
-      } catch (error) {
-        console.error('Error submitting the event:', error);
-        // Entered values are preserved so the user can retry without retyping.
-        toast.error(formatApiError(error));
-      }
-    } finally {
-      setSubmitting(false);
-      submitLockRef.current = false;
-    }
+      })
+      .catch((error) => {
+        const serverMessage =
+          error?.response?.data?.message || error?.response?.data?.error;
+        toast.error(
+          typeof serverMessage === 'string' && serverMessage
+            ? serverMessage
+            : 'There was an error submitting the form. Please try again.'
+        );
+      })
+      .finally(() => {
+        setSubmitting(false);
+      });
   };
 
   return (
-    <LocalizationProvider dateAdapter={AdapterDayjs}>
+    <>
       <Form onSubmit={handleSubmit} noValidate>
         <Section>
           <Heading>Event Details</Heading>
-          <Grid>
-            <FormGroup>
-              <Label htmlFor="event-name">Event Name *</Label>
+          <EventDetailsGrid>
+            <FieldGroup>
+              <Label htmlFor="event-name">Event Name:</Label>
               <Input
                 id="event-name"
                 type="text"
                 name="eventName"
                 value={eventName}
-                onChange={(e) => setEventName(e.target.value)}
-                aria-invalid={shownErrors?.eventName ? true : undefined}
-                aria-describedby={shownErrors?.eventName ? 'event-name-error' : undefined}
-                required
-              />
-              <ItemError id="event-name-error" message={shownErrors?.eventName} />
-            </FormGroup>
-
-            <FormGroup>
-              <Label htmlFor="event-institution" id="event-institution-label">
-                Institution *
-              </Label>
-              <SearchableSelect
-                id="event-institution"
-                value={institution}
-                onChange={setInstitution}
-                options={institutionOptions}
-                placeholder={institutionsLoading ? 'Loading institutions…' : 'Search institution'}
-                required
-                loading={institutionsLoading}
-                loadError={institutionsNotice}
-                onRetry={loadInstitutions}
-                invalid={!!shownErrors?.institution}
-                describedBy={shownErrors?.institution ? 'event-institution-error' : undefined}
-              />
-              <ItemError id="event-institution-error" message={shownErrors?.institution} />
-            </FormGroup>
-
-            <FormGroup>
-              <Label htmlFor="event-date">Event Date *</Label>
-              <DatePicker
-                value={eventDate}
-                onChange={(newValue) =>
-                  setEventDate(newValue && dayjs(newValue).isValid() ? newValue : null)
-                }
-                format="DD-MM-YYYY"
-                slotProps={{
-                  textField: {
-                    id: 'event-date',
-                    size: 'small',
-                    fullWidth: true,
-                    error: !!shownErrors?.eventDate,
-                    helperText: shownErrors?.eventDate || undefined,
-                  },
+                onChange={(e) => {
+                  setEventName(e.target.value);
+                  revalidate({ eventName: e.target.value });
                 }}
+                aria-invalid={Boolean(errors.eventName)}
+                aria-describedby={errors.eventName ? 'error-eventName' : undefined}
+                ref={setFieldRef('eventName')}
               />
-            </FormGroup>
+              {errors.eventName && (
+                <FieldError id="error-eventName" role="alert">
+                  {errors.eventName}
+                </FieldError>
+              )}
+            </FieldGroup>
 
-            <FormGroup>
-              <Label htmlFor="event-day">Day</Label>
+            <FieldGroup>
+              <Label htmlFor="institution-input">Institution:</Label>
+              <SearchableSelect
+                id="institution-input"
+                options={institutionOptions}
+                value={institution}
+                onChange={(value) => {
+                  setInstitution(value);
+                  revalidate({ institution: value });
+                }}
+                placeholder="Search institution…"
+                ariaLabel="Institution"
+                required
+                error={errors.institution}
+                emptyMessage="No institution matches your search"
+                inputRef={setFieldRef('institution')}
+              />
+            </FieldGroup>
+
+            <FieldGroup>
+              <Label id="event-date-label">Date:</Label>
+              <div ref={dateWrapRef} role="group" aria-labelledby="event-date-label">
+                <LocalizationProvider dateAdapter={AdapterDayjs}>
+                  <DatePicker
+                    value={eventDate}
+                    onChange={handleDateChange}
+                    slotProps={{
+                      textField: {
+                        id: 'event-date-input',
+                        fullWidth: true,
+                        error: Boolean(errors.eventDate),
+                        helperText: errors.eventDate || undefined,
+                        FormHelperTextProps: { role: 'alert' },
+                        inputProps: { 'aria-label': 'Event date' },
+                      },
+                    }}
+                  />
+                </LocalizationProvider>
+              </div>
+            </FieldGroup>
+
+            <FieldGroup>
+              <Label htmlFor="event-day">Day:</Label>
               <Input
                 id="event-day"
                 type="text"
                 value={day}
                 readOnly
+                tabIndex={-1}
                 aria-readonly="true"
-                placeholder="Auto-calculated from the date"
+                aria-label="Day (calculated automatically from the selected date)"
+                placeholder="Auto-filled from date"
               />
-              <VisuallyHidden aria-live="polite">
-                {day ? `Day set to ${day}` : 'No day selected'}
-              </VisuallyHidden>
-            </FormGroup>
+            </FieldGroup>
 
-            <FormGroup>
-              <Label htmlFor="event-people">Number of People *</Label>
+            <FieldGroup>
+              <Label htmlFor="no-of-people">Number of People:</Label>
               <Input
-                id="event-people"
+                id="no-of-people"
                 type="number"
                 min="1"
                 step="1"
                 inputMode="numeric"
                 value={noOfPeople}
-                onChange={(e) => setNoOfPeople(sanitizePeopleInput(e.target.value))}
-                aria-invalid={shownErrors?.noOfPeople ? true : undefined}
-                aria-describedby={shownErrors?.noOfPeople ? 'event-people-error' : undefined}
-                required
+                onChange={handlePeopleChange}
+                aria-invalid={Boolean(errors.noOfPeople)}
+                aria-describedby={errors.noOfPeople ? 'error-noOfPeople' : undefined}
+                ref={setFieldRef('noOfPeople')}
               />
-              <ItemError id="event-people-error" message={shownErrors?.noOfPeople} />
-            </FormGroup>
-          </Grid>
+              {errors.noOfPeople && (
+                <FieldError id="error-noOfPeople" role="alert">
+                  {errors.noOfPeople}
+                </FieldError>
+              )}
+            </FieldGroup>
+          </EventDetailsGrid>
         </Section>
 
-        <Section ref={mealsRef} id="event-meals">
-          <SectionTitle>Meal Details</SectionTitle>
-          <Hint>
-            Items are chosen from the existing stock item list. The Unit column shows the unit on
-            the stock record when it has one; the current stock tables do not store a unit, so
-            quantities are recorded as plain numbers.
-          </Hint>
-
-          {itemsLoading && <Banner>Loading stock items…</Banner>}
-          {!itemsLoading && itemsError && (
-            <Banner>
-              <span role="alert">{itemsError}</span>
-              <button type="button" onClick={loadStockItems}>
-                Retry
-              </button>
-            </Banner>
+        <Section>
+          <SectionTitle ref={mealsHeadingRef}>Meal Details</SectionTitle>
+          {errors.meals && (
+            <FormError role="alert">{errors.meals}</FormError>
           )}
+          {mealSections.map((section) => (
+            <MealSection
+              key={section.id}
+              role="group"
+              aria-label={`Meal section: ${section.mealType || 'Unnamed meal'}`}
+            >
+              <MealHeader>
+                <MealTypeGroup>
+                  <Label htmlFor={`meal-type-${section.id}`}>Meal Type:</Label>
+                  <Select
+                    id={`meal-type-${section.id}`}
+                    value={section.mealType}
+                    onChange={(e) => changeMealType(section.id, e.target.value)}
+                    $invalid={Boolean(errors[`${section.id}-mealType`])}
+                    aria-invalid={Boolean(errors[`${section.id}-mealType`])}
+                    aria-describedby={
+                      errors[`${section.id}-mealType`]
+                        ? `error-${section.id}-mealType`
+                        : undefined
+                    }
+                    ref={setFieldRef(`${section.id}-mealType`)}
+                  >
+                    <option value="">Select Meal Type</option>
+                    {MEAL_TYPES.map((type) => (
+                      <option key={type} value={type}>
+                        {type}
+                      </option>
+                    ))}
+                  </Select>
+                  {errors[`${section.id}-mealType`] && (
+                    <FieldError id={`error-${section.id}-mealType`} role="alert">
+                      {errors[`${section.id}-mealType`]}
+                    </FieldError>
+                  )}
+                </MealTypeGroup>
+                <ItemCount>
+                  {section.items.length} item{section.items.length === 1 ? '' : 's'}
+                </ItemCount>
+                <Button type="button" onClick={() => addItem(section.id)}>
+                  Add Item
+                </Button>
+                <DangerButton type="button" onClick={() => requestDeleteMeal(section)}>
+                  Delete Meal
+                </DangerButton>
+              </MealHeader>
 
-          {shownErrors?.meals?.general && (
-            <ItemError id="event-meals-error" message={shownErrors.meals.general} />
-          )}
+              <ItemHeaderRow aria-hidden="true">
+                <span>Item</span>
+                <span>Quantity</span>
+                <span>Type</span>
+                <Spacer />
+              </ItemHeaderRow>
 
-          {mealSections.map((mealSection) => {
-            const mealErrors = shownErrors?.meals?.[mealSection.uid];
-            const filledItems = mealSection.items.filter((item) => item.name).length;
-            return (
-              <MealSection
-                key={mealSection.uid}
-                id={`meal-${mealSection.uid}`}
-                tabIndex={-1}
-              >
-                <MealHeader>
-                  <FormGroup className="meal-type">
-                    <Label htmlFor={`meal-type-${mealSection.uid}`}>Meal Type *</Label>
-                    <Select
-                      id={`meal-type-${mealSection.uid}`}
-                      value={mealSection.mealType}
-                      onChange={(e) =>
-                        setMealSections((prev) =>
-                          updateMeal(prev, mealSection.uid, { mealType: e.target.value })
-                        )
-                      }
-                      aria-invalid={mealErrors?.mealType ? true : undefined}
-                      aria-describedby={
-                        mealErrors?.mealType ? `meal-type-error-${mealSection.uid}` : undefined
-                      }
+              {section.items.map((item, itemIdx) => (
+                <ItemRow key={item.id}>
+                  <FieldGroup>
+                    <SearchableSelect
+                      options={itemOptions}
+                      value={item.name}
+                      loading={stockLoading}
+                      loadError={stockError}
+                      onRetry={loadStock}
+                      onChange={(value) => changeItem(section.id, item.id, 'name', value)}
+                      placeholder="Search stock item…"
+                      ariaLabel={`Item ${itemIdx + 1} in ${section.mealType || 'meal'}`}
                       required
+                      error={errors[`${item.id}-name`]}
+                      emptyMessage="No stock item matches your search"
+                      inputRef={setFieldRef(`${item.id}-name`)}
+                    />
+                  </FieldGroup>
+                  <FieldGroup>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="any"
+                      inputMode="decimal"
+                      placeholder="Qty"
+                      aria-label={`Quantity for item ${itemIdx + 1} in ${section.mealType || 'meal'}`}
+                      value={item.quantity}
+                      onChange={(e) => {
+                        if (e.target.validity && e.target.validity.badInput) return;
+                        changeItem(
+                          section.id,
+                          item.id,
+                          'quantity',
+                          cleanQuantity(e.target.value)
+                        );
+                      }}
+                      $invalid={Boolean(errors[`${item.id}-quantity`])}
+                      aria-invalid={Boolean(errors[`${item.id}-quantity`])}
+                      aria-describedby={
+                        errors[`${item.id}-quantity`]
+                          ? `error-${item.id}-quantity`
+                          : undefined
+                      }
+                      ref={setFieldRef(`${item.id}-quantity`)}
+                    />
+                    {errors[`${item.id}-quantity`] && (
+                      <FieldError id={`error-${item.id}-quantity`} role="alert">
+                        {errors[`${item.id}-quantity`]}
+                      </FieldError>
+                    )}
+                  </FieldGroup>
+                  <FieldGroup>
+                    <Select
+                      value={item.type}
+                      onChange={(e) => changeItem(section.id, item.id, 'type', e.target.value)}
+                      aria-label={`Type for item ${itemIdx + 1} in ${section.mealType || 'meal'}`}
+                      $invalid={Boolean(errors[`${item.id}-type`])}
+                      aria-invalid={Boolean(errors[`${item.id}-type`])}
+                      aria-describedby={
+                        errors[`${item.id}-type`] ? `error-${item.id}-type` : undefined
+                      }
+                      ref={setFieldRef(`${item.id}-type`)}
                     >
-                      <option value="">Select Meal Type</option>
-                      {MEAL_TYPES.map((type) => (
-                        <option key={type} value={type}>
-                          {type}
+                      <option value="">Select Type</option>
+                      {ITEM_TYPES.map((t) => (
+                        <option key={t} value={t}>
+                          {t}
                         </option>
                       ))}
                     </Select>
-                    <ItemError
-                      id={`meal-type-error-${mealSection.uid}`}
-                      message={mealErrors?.mealType}
-                    />
-                  </FormGroup>
-
-                  <Button
+                    {errors[`${item.id}-type`] && (
+                      <FieldError id={`error-${item.id}-type`} role="alert">
+                        {errors[`${item.id}-type`]}
+                      </FieldError>
+                    )}
+                  </FieldGroup>
+                  <RemoveRowButton
                     type="button"
-                    onClick={() => setMealSections((prev) => addItem(prev, mealSection.uid))}
+                    aria-label={`Remove item ${itemIdx + 1} from ${section.mealType || 'meal'}`}
+                    onClick={() => requestDeleteItem(section, item)}
                   >
-                    <FaPlus aria-hidden="true" /> Add Item
-                  </Button>
-                  <DangerButton type="button" onClick={() => handleDeleteMeal(mealSection.uid)}>
-                    <FaTrash aria-hidden="true" /> Delete Meal
-                  </DangerButton>
+                    ✕
+                  </RemoveRowButton>
+                </ItemRow>
+              ))}
 
-                  <ItemCount>
-                    {filledItems} of {mealSection.items.length} item
-                    {mealSection.items.length === 1 ? '' : 's'} selected
-                  </ItemCount>
-                </MealHeader>
-
-                {mealErrors?.items?.general && (
-                  <ItemError message={mealErrors.items.general} />
-                )}
-
-                {mealSection.items.length > 0 && (
-                  <ItemGridHead aria-hidden="true">
-                    <span>Item</span>
-                    <span>Quantity</span>
-                    <span>Type</span>
-                    <span>Unit</span>
-                    <span />
-                  </ItemGridHead>
-                )}
-
-                {mealSection.items.map((item) => {
-                  const itemErrors = mealErrors?.items?.[item.uid];
-                  const base = `${mealSection.uid}-${item.uid}`;
-                  return (
-                    <ItemGrid key={item.uid}>
-                      <Cell>
-                        <CellLabel htmlFor={`item-name-${base}`}>Item *</CellLabel>
-                        <SearchableSelect
-                          id={`item-name-${base}`}
-                          value={item.name}
-                          onChange={(value) => handleItemSelect(mealSection.uid, item.uid, value)}
-                          options={itemOptions}
-                          placeholder={itemsLoading ? 'Loading stock items…' : 'Search stock item'}
-                          required
-                          loading={itemsLoading}
-                          loadError={itemsError}
-                          onRetry={loadStockItems}
-                          filterFn={itemFilterFn}
-                          invalid={!!itemErrors?.name}
-                          describedBy={itemErrors?.name ? `item-name-error-${base}` : undefined}
-                        />
-                        <ItemError
-                          id={`item-name-error-${base}`}
-                          message={itemErrors?.name}
-                        />
-                      </Cell>
-
-                      <Cell>
-                        <CellLabel htmlFor={`item-qty-${base}`}>Quantity *</CellLabel>
-                        <Input
-                          id={`item-qty-${base}`}
-                          type="number"
-                          min="0"
-                          step="any"
-                          inputMode="decimal"
-                          value={item.quantity}
-                          onChange={(e) => {
-                            const quantity = sanitizeQuantityInput(e.target.value);
-                            setMealSections((prev) =>
-                              updateItem(prev, mealSection.uid, item.uid, { quantity })
-                            );
-                          }}
-                          aria-invalid={itemErrors?.quantity ? true : undefined}
-                          aria-describedby={
-                            itemErrors?.quantity ? `item-qty-error-${base}` : undefined
-                          }
-                        />
-                        <ItemError
-                          id={`item-qty-error-${base}`}
-                          message={itemErrors?.quantity}
-                        />
-                      </Cell>
-
-                      <Cell>
-                        <CellLabel htmlFor={`item-type-${base}`}>Type *</CellLabel>
-                        <Select
-                          id={`item-type-${base}`}
-                          value={item.type}
-                          onChange={(e) =>
-                            setMealSections((prev) =>
-                              updateItem(prev, mealSection.uid, item.uid, {
-                                type: e.target.value,
-                              })
-                            )
-                          }
-                          aria-invalid={itemErrors?.type ? true : undefined}
-                          aria-describedby={
-                            itemErrors?.type ? `item-type-error-${base}` : undefined
-                          }
-                          required
-                        >
-                          <option value="">Select Type</option>
-                          {ITEM_TYPES.map((type) => (
-                            <option key={type} value={type}>
-                              {type}
-                            </option>
-                          ))}
-                        </Select>
-                        <ItemError
-                          id={`item-type-error-${base}`}
-                          message={itemErrors?.type}
-                        />
-                      </Cell>
-
-                      <Cell>
-                        <CellLabel htmlFor={`item-unit-${base}`}>Unit</CellLabel>
-                        <UnitBox
-                          id={`item-unit-${base}`}
-                          title="Unit from the stock record, when the stock data provides one"
-                        >
-                          {item.unit || '—'}
-                        </UnitBox>
-                      </Cell>
-
-                      <Cell>
-                        <RemoveButton
-                          type="button"
-                          aria-label={`Remove ${item.name || 'item'}`}
-                          onClick={() => handleDeleteItem(mealSection.uid, item.uid)}
-                        >
-                          <FaTimes aria-hidden="true" /> Remove
-                        </RemoveButton>
-                      </Cell>
-                    </ItemGrid>
-                  );
-                })}
-              </MealSection>
-            );
-          })}
-
-          <GhostButton type="button" onClick={() => setMealSections((prev) => addMeal(prev))}>
-            <FaPlus aria-hidden="true" /> Add Meal Type
-          </GhostButton>
+              {stockError && !stockLoading && (
+                <EmptyStockNote role="alert">
+                  Stock items could not be loaded. Existing selections are kept — use
+                  Retry on any item field to load the list again.
+                </EmptyStockNote>
+              )}
+            </MealSection>
+          ))}
         </Section>
 
-        <Actions>
-          <SubmitButton type="submit" disabled={submitting || itemsLoading}>
-            {submitting ? 'Saving…' : 'Submit'}
-          </SubmitButton>
-        </Actions>
+        <Holder>
+          <Button type="button" onClick={addMeal}>
+            Add Meal Type
+          </Button>
+          <Button type="submit" disabled={submitting}>
+            {submitting ? 'Submitting…' : 'Submit'}
+          </Button>
+        </Holder>
       </Form>
+
+      {pendingDelete && (
+        <ConfirmDialog
+          title={pendingDelete.kind === 'meal' ? 'Delete this meal?' : 'Remove this item?'}
+          message={
+            pendingDelete.kind === 'meal'
+              ? `"${pendingDelete.label}" and all of its items will be removed from this event.`
+              : `"${pendingDelete.label}" will be removed from this event.`
+          }
+          confirmLabel={pendingDelete.kind === 'meal' ? 'Delete Meal' : 'Remove Item'}
+          onConfirm={() => {
+            if (pendingDelete.kind === 'meal') {
+              removeMeal(pendingDelete.mealId);
+            } else {
+              removeItem(pendingDelete.mealId, pendingDelete.itemId);
+            }
+            setPendingDelete(null);
+          }}
+          onCancel={() => setPendingDelete(null)}
+        />
+      )}
+
       <ToastContainer />
-    </LocalizationProvider>
+    </>
   );
 };
 

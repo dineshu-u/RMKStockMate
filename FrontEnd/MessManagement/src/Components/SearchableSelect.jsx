@@ -1,350 +1,401 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import PropTypes from 'prop-types';
 import styled from 'styled-components';
-import { FaChevronDown, FaTimes } from 'react-icons/fa';
-
-// Lightweight, keyboard-accessible searchable select (combobox) used for the
-// Institution and stock Item fields on the Add Event form.
-//
-// Deliberately dependency-free: the app already ships styled-components and
-// react-icons but does not use @mui/material anywhere, so importing a heavy
-// Autocomplete component for two fields would be out of place.
 
 const Wrapper = styled.div`
   position: relative;
-  width: 100%;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 `;
 
 const Control = styled.div`
+  position: relative;
   display: flex;
   align-items: center;
-  border: 1px solid ${(p) => (p.$invalid ? '#d9534f' : '#ccc')};
-  border-radius: 4px;
-  background: white;
-
-  &:focus-within {
-    border-color: #007bff;
-    box-shadow: 0 0 5px #164863;
-  }
 `;
 
-const SearchInput = styled.input`
-  flex: 1;
-  min-width: 0;
-  border: none;
-  outline: none;
+const StyledInput = styled.input`
+  width: 100%;
+  box-sizing: border-box;
   padding: 10px;
+  border: 1px solid ${(props) => (props.$invalid ? '#d32f2f' : '#ccc')};
+  border-radius: 4px;
   font-size: 1rem;
-  background: transparent;
-  color: #164863;
-
+  background: white;
+  &:focus {
+    border-color: #007bff;
+    outline: none;
+    box-shadow: 0 0 5px #164863;
+  }
   &:disabled {
     background: #f4f4f4;
     cursor: not-allowed;
   }
 `;
 
-const IconButton = styled.button`
+const ClearButton = styled.button`
+  position: absolute;
+  right: 6px;
   border: none;
   background: transparent;
-  color: #164863;
+  color: #666;
+  font-size: 1rem;
+  line-height: 1;
   cursor: pointer;
-  padding: 8px;
-  display: flex;
-  align-items: center;
-  font-size: 0.85rem;
-
+  padding: 4px;
+  border-radius: 4px;
   &:hover {
-    color: #1d4f6f;
+    color: #164863;
   }
 `;
 
-const Popup = styled.ul`
+const Dropdown = styled.ul`
   position: absolute;
-  z-index: 30;
-  top: calc(100% + 2px);
+  top: calc(100% + 4px);
   left: 0;
   right: 0;
+  z-index: 30;
   margin: 0;
   padding: 4px 0;
   list-style: none;
   background: white;
   border: 1px solid #ccc;
   border-radius: 4px;
-  max-height: 240px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  max-height: 260px;
   overflow-y: auto;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
 `;
 
 const Option = styled.li`
   padding: 8px 10px;
   cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  background: ${(p) => (p.$active ? '#e8f1f7' : 'transparent')};
-
-  .label {
+  font-size: 0.95rem;
+  color: #333;
+  &[aria-selected='true'] {
+    background: #e8f0fe;
     color: #164863;
-    font-size: 0.95rem;
+    font-weight: 600;
   }
-
-  .meta {
-    color: #64748b;
-    font-size: 0.78rem;
+  &[aria-active='true'] {
+    background: #d7e6f7;
   }
 `;
 
-const StatusRow = styled.li`
+const OptionMeta = styled.span`
+  display: block;
+  font-size: 0.78rem;
+  color: #6b7a86;
+  font-weight: 400;
+  margin-top: 2px;
+`;
+
+const StatusItem = styled.li`
   padding: 10px;
-  color: #64748b;
   font-size: 0.9rem;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  justify-content: space-between;
+  color: #555;
+  cursor: default;
+  text-align: center;
+`;
 
-  button {
-    border: 1px solid #164863;
-    background: white;
-    color: #164863;
-    border-radius: 14px;
-    padding: 3px 12px;
-    font-size: 0.8rem;
-    cursor: pointer;
+const ErrorItem = styled.li`
+  padding: 10px;
+  font-size: 0.9rem;
+  color: #d32f2f;
+  cursor: default;
+  text-align: center;
+`;
+
+const RetryButton = styled.button`
+  display: inline-block;
+  margin-top: 6px;
+  padding: 4px 12px;
+  border: 1px solid #164863;
+  background: white;
+  color: #164863;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  &:hover {
+    background: #164863;
+    color: white;
   }
 `;
 
-const defaultFilter = (options, query) => {
-  const q = query.trim().toLowerCase();
-  if (!q) return options;
-  return options.filter(
-    (o) =>
-      o.label.toLowerCase().includes(q) || String(o.meta ?? '').toLowerCase().includes(q)
-  );
-};
+const ErrorText = styled.span`
+  color: #d32f2f;
+  font-size: 0.85rem;
+  margin-top: 4px;
+  font-weight: 600;
+`;
 
+/**
+ * Lightweight accessible searchable dropdown (WAI-ARIA combobox pattern).
+ *
+ * Props:
+ *  - options: [{ value, label, meta }]   (value must be unique)
+ *  - value: currently selected value ('' when none)
+ *  - onChange(value)
+ *  - loading / loadError / onRetry  → loading, error and retry states
+ *  - emptyMessage → shown when no option matches the query
+ *  - error → inline validation message (field-level)
+ *  - placeholder, disabled, required
+ */
 const SearchableSelect = ({
-  id,
-  value,
-  onChange,
   options = [],
-  placeholder = 'Select',
-  disabled = false,
-  invalid = false,
-  describedBy,
-  required = false,
+  value = '',
+  onChange,
+  placeholder = 'Search…',
   loading = false,
   loadError = '',
   onRetry,
-  filterFn,
-  limit,
-  clearable = true,
+  emptyMessage = 'No matches found',
+  error = '',
+  disabled = false,
+  required = false,
+  name,
+  ariaLabel,
+  id,
+  inputRef: externalInputRef,
 }) => {
+  const uid = useId();
+  const listboxId = `${uid}-listbox`;
+  const inputId = id || `${uid}-input`;
+
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const wrapperRef = useRef(null);
-  const inputRef = useRef(null);
+  const activeOptionRef = useRef(null);
+  const inputRefObj = useRef(null);
 
-  const selected = useMemo(() => options.find((o) => o.value === value) ?? null, [options, value]);
+  const setRefs = (el) => {
+    inputRefObj.current = el;
+    if (externalInputRef) {
+      externalInputRef.current = el;
+    }
+  };
 
-  const results = useMemo(() => {
-    if (filterFn) return filterFn(options, query);
-    const filtered = defaultFilter(options, query);
-    return limit ? filtered.slice(0, limit) : filtered;
-  }, [options, query, filterFn, limit]);
+  const selectedOption = useMemo(
+    () => options.find((opt) => opt.value === value) || null,
+    [options, value]
+  );
 
-  // The text shown in the box: what the user is typing while the list is open,
-  // otherwise the label of the current selection.
-  const inputText = open ? query : selected?.label ?? '';
-  const listboxId = `${id}-listbox`;
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter(
+      (opt) =>
+        opt.label.toLowerCase().includes(q) ||
+        (opt.meta && opt.meta.toLowerCase().includes(q))
+    );
+  }, [options, query]);
 
   useEffect(() => {
-    if (!open) return undefined;
-    const onDocMouseDown = (event) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
+    if (!open) return;
+    const handlePointerDown = (e) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
         setOpen(false);
-        setQuery('');
       }
     };
-    document.addEventListener('mousedown', onDocMouseDown);
-    return () => document.removeEventListener('mousedown', onDocMouseDown);
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
   }, [open]);
+
+  useEffect(() => {
+    if (activeOptionRef.current) {
+      activeOptionRef.current.scrollIntoView({ block: 'nearest' });
+    }
+  }, [activeIndex, open]);
 
   const openList = () => {
     if (disabled) return;
     setQuery('');
-    setActiveIndex(0);
+    setActiveIndex(options.length > 0 ? 0 : -1);
     setOpen(true);
   };
 
-  const closeList = () => {
+  const selectOption = (opt) => {
+    onChange(opt.value);
     setOpen(false);
     setQuery('');
+    inputRefObj.current?.focus();
   };
 
-  const commit = (option) => {
-    if (!option) return;
-    onChange(option.value);
-    closeList();
+  const clearSelection = () => {
+    onChange('');
+    setQuery('');
+    inputRefObj.current?.focus();
   };
 
-  const handleKeyDown = (event) => {
+  const handleKeyDown = (e) => {
     if (disabled) return;
-    const count = results.length;
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      event.preventDefault();
-      if (!open) {
-        openList();
-        return;
-      }
-      if (count === 0) return;
-      setActiveIndex((prev) => {
-        const next = event.key === 'ArrowDown' ? prev + 1 : prev - 1;
-        return (next + count) % count;
-      });
-      return;
-    }
-    if (event.key === 'Enter') {
-      if (open) {
-        event.preventDefault();
-        commit(results[activeIndex]);
-      }
-      return;
-    }
-    if (event.key === 'Escape') {
-      if (open) {
-        event.preventDefault();
-        closeList();
-      }
-      return;
-    }
-    if (event.key === 'Home' && open) {
-      event.preventDefault();
-      setActiveIndex(0);
-    }
-    if (event.key === 'End' && open) {
-      event.preventDefault();
-      setActiveIndex(Math.max(count - 1, 0));
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        if (!open) {
+          openList();
+        } else {
+          setActiveIndex((i) => {
+            const next = Math.min(i + 1, filtered.length - 1);
+            return filtered.length === 0 ? -1 : Math.max(next, 0);
+          });
+        }
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        if (open) {
+          setActiveIndex((i) => Math.max(i - 1, 0));
+        }
+        break;
+      case 'Home':
+        if (open) {
+          e.preventDefault();
+          setActiveIndex(filtered.length > 0 ? 0 : -1);
+        }
+        break;
+      case 'End':
+        if (open) {
+          e.preventDefault();
+          setActiveIndex(filtered.length - 1);
+        }
+        break;
+      case 'Enter':
+        if (open && activeIndex >= 0 && filtered[activeIndex]) {
+          e.preventDefault();
+          selectOption(filtered[activeIndex]);
+        }
+        break;
+      case 'Escape':
+        if (open) {
+          e.preventDefault();
+          setOpen(false);
+          setQuery('');
+        }
+        break;
+      default:
+        break;
     }
   };
 
-  const showPopup = open;
+  const displayValue = open ? query : selectedOption ? selectedOption.label : '';
+  const describedBy = error ? `${uid}-error` : undefined;
 
   return (
     <Wrapper ref={wrapperRef}>
-      <Control $invalid={invalid}>
-        <SearchInput
-          id={id}
-          ref={inputRef}
+      <Control>
+        <StyledInput
+          id={inputId}
+          name={name}
           type="text"
           role="combobox"
-          autoComplete="off"
-          aria-expanded={showPopup}
-          aria-controls={showPopup ? listboxId : undefined}
+          aria-expanded={open}
+          aria-controls={listboxId}
           aria-autocomplete="list"
           aria-activedescendant={
-            showPopup && results.length ? `${id}-option-${activeIndex}` : undefined
+            open && activeIndex >= 0 && filtered[activeIndex]
+              ? `${uid}-opt-${activeIndex}`
+              : undefined
           }
-          aria-invalid={invalid || undefined}
+          aria-invalid={Boolean(error)}
           aria-describedby={describedBy}
-          aria-required={required || undefined}
+          aria-label={ariaLabel}
+          aria-required={required}
+          autoComplete="off"
           disabled={disabled}
           placeholder={placeholder}
-          value={inputText}
-          onFocus={openList}
-          onClick={() => {
-            if (!open) openList();
-          }}
+          value={displayValue}
+          $invalid={Boolean(error)}
+          ref={setRefs}
           onChange={(e) => {
             setQuery(e.target.value);
             setActiveIndex(0);
-            if (!open) setOpen(true);
+            setOpen(true);
           }}
+          onFocus={openList}
+          onClick={openList}
           onKeyDown={handleKeyDown}
-          onBlur={() => {
-            // Delay so an option click is not swallowed; keyboard users keep the list open.
-            window.setTimeout(() => {
-              if (wrapperRef.current && !wrapperRef.current.contains(document.activeElement)) {
-                closeList();
-              }
-            }, 120);
-          }}
         />
-        {clearable && selected && !disabled && (
-          <IconButton
+        {!disabled && selectedOption && (
+          <ClearButton
             type="button"
-            aria-label="Clear selection"
             tabIndex={-1}
-            onClick={() => {
-              onChange('');
-              closeList();
-              inputRef.current?.focus();
-            }}
+            aria-label={`Clear ${ariaLabel || 'selection'}`}
+            onClick={clearSelection}
           >
-            <FaTimes />
-          </IconButton>
+            ✕
+          </ClearButton>
         )}
-        <IconButton
-          type="button"
-          aria-label={showPopup ? 'Close list' : 'Open list'}
-          tabIndex={-1}
-          disabled={disabled}
-          onClick={() => {
-            if (showPopup) {
-              closeList();
-            } else {
-              openList();
-              inputRef.current?.focus();
-            }
-          }}
-        >
-          <FaChevronDown />
-        </IconButton>
       </Control>
-
-      {showPopup && (
-        <Popup id={listboxId} role="listbox" aria-label={placeholder}>
-          {loading && <StatusRow>Loading…</StatusRow>}
-
+      {open && (
+        <Dropdown id={listboxId} role="listbox" aria-label={ariaLabel}>
+          {loading && <StatusItem role="status">Loading…</StatusItem>}
           {!loading && loadError && (
-            <StatusRow>
-              <span role="alert">{loadError}</span>
+            <ErrorItem>
+              {loadError}
               {onRetry && (
-                <button type="button" onClick={onRetry}>
-                  Retry
-                </button>
+                <div>
+                  <RetryButton type="button" onClick={onRetry}>
+                    Retry
+                  </RetryButton>
+                </div>
               )}
-            </StatusRow>
+            </ErrorItem>
           )}
-
-          {!loading && !loadError && results.length === 0 && (
-            <StatusRow>
-              {options.length === 0 ? 'No options available.' : 'No matches found.'}
-            </StatusRow>
+          {!loading && !loadError && filtered.length === 0 && (
+            <StatusItem>{emptyMessage}</StatusItem>
           )}
-
           {!loading &&
             !loadError &&
-            results.map((option, index) => (
+            filtered.map((opt, index) => (
               <Option
-                key={option.value}
-                id={`${id}-option-${index}`}
+                key={opt.value}
+                id={`${uid}-opt-${index}`}
                 role="option"
-                aria-selected={option.value === value}
-                $active={index === activeIndex}
-                onMouseEnter={() => setActiveIndex(index)}
+                aria-selected={opt.value === value}
+                aria-active={index === activeIndex}
+                ref={index === activeIndex ? activeOptionRef : null}
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={() => commit(option)}
+                onClick={() => selectOption(opt)}
+                onMouseEnter={() => setActiveIndex(index)}
               >
-                <span className="label">{option.label}</span>
-                {option.meta ? <span className="meta">{option.meta}</span> : null}
+                {opt.label}
+                {opt.meta && <OptionMeta>{opt.meta}</OptionMeta>}
               </Option>
             ))}
-        </Popup>
+        </Dropdown>
+      )}
+      {error && (
+        <ErrorText id={`${uid}-error`} role="alert">
+          {error}
+        </ErrorText>
       )}
     </Wrapper>
   );
 };
 
 export default SearchableSelect;
+
+SearchableSelect.propTypes = {
+  options: PropTypes.arrayOf(
+    PropTypes.shape({
+      value: PropTypes.string.isRequired,
+      label: PropTypes.string.isRequired,
+      meta: PropTypes.string,
+    })
+  ),
+  value: PropTypes.string,
+  onChange: PropTypes.func.isRequired,
+  placeholder: PropTypes.string,
+  loading: PropTypes.bool,
+  loadError: PropTypes.string,
+  onRetry: PropTypes.func,
+  emptyMessage: PropTypes.string,
+  error: PropTypes.string,
+  disabled: PropTypes.bool,
+  required: PropTypes.bool,
+  name: PropTypes.string,
+  ariaLabel: PropTypes.string,
+  id: PropTypes.string,
+  inputRef: PropTypes.shape({ current: PropTypes.any }),
+};

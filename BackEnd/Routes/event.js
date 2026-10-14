@@ -1,27 +1,107 @@
 const express = require('express');
 const db = require('../db');
-const { validateEventPayload } = require('../utils/eventValidation');
 const router = express.Router();
+
+// Upper bound of a MySQL INT column
+const MAX_NO_OF_PEOPLE = 2147483647;
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+// ---------------------------------------------------------------------
+// Validation helpers (backward compatible: field names and insert
+// behaviour are unchanged; only clearly invalid payloads are rejected)
+// ---------------------------------------------------------------------
+
+function isNonEmptyString(v) {
+  return typeof v === 'string' && v.trim().length > 0;
+}
+
+function isValidDateString(s) {
+  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const d = new Date(`${s}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+}
+
+// Accepts numbers or digit-only strings; decimals, negatives and text are rejected
+function parsePositiveInt(v) {
+  if (typeof v === 'number' && Number.isInteger(v)) return v;
+  if (typeof v === 'string' && /^\d+$/.test(v.trim())) return parseInt(v.trim(), 10);
+  return NaN;
+}
+
+// Accepts numbers or numeric strings (decimals permitted, as elsewhere in the app)
+function parseQuantity(v) {
+  if (typeof v === 'number') return v;
+  if (typeof v === 'string' && v.trim() !== '') return Number(v.trim());
+  return NaN;
+}
+
+function validateEventPayload(body) {
+  const { event_name, institution, event_date, meal_details, no_of_people } = body;
+  const errors = [];
+
+  if (!isNonEmptyString(event_name)) errors.push('event_name is required.');
+  if (!isNonEmptyString(institution)) errors.push('institution is required.');
+  if (!isValidDateString(event_date)) {
+    errors.push('event_date must be a valid date in YYYY-MM-DD format.');
+  }
+
+  const people = parsePositiveInt(no_of_people);
+  if (!(Number.isInteger(people) && people >= 1 && people <= MAX_NO_OF_PEOPLE)) {
+    errors.push('no_of_people must be a positive whole number.');
+  }
+
+  if (!Array.isArray(meal_details) || meal_details.length === 0) {
+    errors.push('meal_details must be a non-empty array.');
+  } else {
+    meal_details.forEach((meal, i) => {
+      if (!meal || !isNonEmptyString(meal.mealType)) {
+        errors.push(`meal_details[${i}].mealType is required.`);
+      }
+      if (!meal || !Array.isArray(meal.items) || meal.items.length === 0) {
+        errors.push(`meal_details[${i}].items must be a non-empty array.`);
+      } else {
+        meal.items.forEach((item, j) => {
+          if (!item || !isNonEmptyString(item.name)) {
+            errors.push(`meal_details[${i}].items[${j}].name is required.`);
+          }
+          const qty = item ? parseQuantity(item.quantity) : NaN;
+          if (!(Number.isFinite(qty) && qty > 0)) {
+            errors.push(
+              `meal_details[${i}].items[${j}].quantity must be a number greater than 0.`
+            );
+          }
+          if (!item || !isNonEmptyString(item.type)) {
+            errors.push(`meal_details[${i}].items[${j}].type is required.`);
+          }
+        });
+      }
+    });
+  }
+
+  return { errors, people };
+}
 
 router.post('/addevent', (req, res) => {
   console.log("REQUEST BODY IS ", req.body);
-  const { event_name, institution, event_date, meal_details, no_of_people } = req.body || {};
+  const { event_name, institution, event_date, meal_details, day, no_of_people } = req.body;
 
-  // Backward-compatible validation: valid payloads behave exactly as before,
-  // malformed ones are rejected with 400 instead of being stored.
-  const validation = validateEventPayload(req.body);
-  if (!validation.valid) {
-    return res.status(400).json({ message: validation.message });
+  const { errors, people } = validateEventPayload(req.body);
+  if (errors.length > 0) {
+    return res.status(400).json({ message: 'Invalid event details.', errors });
   }
 
-  const day = validation.day;
+  // Keep the client-supplied day when present; otherwise derive it from the
+  // calendar date in UTC so the stored day always matches event_date.
+  const storedDay = isNonEmptyString(day)
+    ? day.trim()
+    : WEEKDAYS[new Date(`${event_date}T00:00:00Z`).getUTCDay()];
 
   const sqlInsert = `
     INSERT INTO events(event_name, institution, event_date, meal_details,day,no_of_people)
     VALUES (?, ?, ?, ?,?,?)
   `;
 
-  db.query(sqlInsert, [event_name, institution, event_date, JSON.stringify(meal_details), day, no_of_people], (err, result) => {
+  db.query(sqlInsert, [event_name, institution, event_date, JSON.stringify(meal_details), storedDay, people], (err, result) => {
     if (err) {
       console.error("Error inserting event details:", err);
       res.status(500).send("Error inserting event details");

@@ -77,11 +77,17 @@ INSERT IGNORE INTO attendance_institutions (name) VALUES
   ('RMK'),
   ('RMD'),
   ('RMK-CET'),
-  ('RMK H/School'),
+  ('RMK Residential'),
   ('RMK Mat. School'),
   ('SDPC'),
   ('RMK School / Thiruverkadu'),
   ('RMK Pathasala');
+
+-- Rename 'RMK H/School' to 'RMK Residential' in databases created before
+-- this rename. Repeatable: matches zero rows once already renamed.
+UPDATE attendance_institutions
+SET name = 'RMK Residential'
+WHERE name = 'RMK H/School';
 
 INSERT IGNORE INTO attendance_categories (name) VALUES
   ('Students'),

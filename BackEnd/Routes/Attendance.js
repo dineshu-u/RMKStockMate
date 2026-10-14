@@ -143,13 +143,7 @@ function buildDaily(config, records, date) {
   });
 
   const grandTotal = institutions.reduce((a, i) => a + i.total, 0);
-  // Count only pairs that belong to the (possibly filtered) config so the
-  // "X of Y entries recorded" banner stays correct when filters are applied
-  const recordedPairs = institutions.reduce(
-    (a, i) => a + i.categories.filter(cat => cat.headcount !== null).length,
-    0
-  );
-  return { date, institutions, categoryTotals, grandTotal, complete, recordedPairs };
+  return { date, institutions, categoryTotals, grandTotal, complete, recordedPairs: recMap.size };
 }
 
 async function fetchRecords(from, to, institutionId, categoryId) {
@@ -416,9 +410,8 @@ router.post('/save', async (req, res) => {
   }
 });
 
-// Daily summary - authoritative totals for one date
-// Optional institutionId/categoryId filters (same params as /report/range);
-// absent or empty params return the unfiltered report.
+// Daily summary - authoritative totals for one date, with optional
+// institution/category filters (same semantics as range/monthly)
 router.get('/report/daily', async (req, res) => {
   const { date, institutionId, categoryId } = req.query;
   if (!isValidDateString(date)) {
@@ -432,6 +425,7 @@ router.get('/report/daily', async (req, res) => {
   if (categoryId !== undefined && categoryId !== '' && !isId(catFilter)) {
     return res.status(400).json({ message: 'Invalid categoryId' });
   }
+
   try {
     const config = await loadConfig();
     if (config.length === 0) {
@@ -439,21 +433,14 @@ router.get('/report/daily', async (req, res) => {
     }
     const filtered = filterConfig(config, instFilter, catFilter);
     if (!filtered) {
-      // Filters match no institution/category - return an empty report
       return res.status(200).json({
         date,
-        institutions: [],
-        categoryTotals: [],
-        grandTotal: 0,
-        complete: true,
-        recordedPairs: 0
+        institutions: [], categoryTotals: [], grandTotal: 0,
+        complete: true, recordedPairs: 0
       });
     }
-    const [rows] = await db.promise().query(
-      'SELECT institution_id, category_id, headcount FROM attendance_records WHERE attendance_date = ?',
-      [date]
-    );
-    res.status(200).json(buildDaily(filtered, rows, date));
+    const records = await fetchRecords(date, date, instFilter, catFilter);
+    res.status(200).json(buildDaily(filtered, records, date));
   } catch (error) {
     console.error('Error building daily attendance report:', error);
     res.status(500).json({ message: 'Failed to build daily attendance report' });
