@@ -272,16 +272,6 @@ const Reports = () => {
             route="/dashboard/reports/category-wise" 
           />
         </TwoColumnGrid>
-
-        {/* 3. Attendance Reports */}
-        <SectionTitle>Attendance Reports</SectionTitle>
-        <TwoColumnGrid>
-          <SingleDateReportCard 
-            title="Attendance Report" 
-            route="/dashboard/attendance-report" 
-            buttonText="Open Report" 
-          />
-        </TwoColumnGrid>
       </ReportsContainer>
       <ToastContainer />
     </>

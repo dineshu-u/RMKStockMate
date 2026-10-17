@@ -17,22 +17,30 @@ const MainContent = styled.div`
   flex: 1;
 `;
 
+const ContentArea = styled.div`
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+`;
+
 const MainFrame = styled.div`
   margin-top: 0;
+  flex: 1;
   width: 100%;
-  height: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   padding: 1rem;
-  max-height: 100%;
-  min-width: 93.45vw;
   background-color: #f4f4f4;
 `;
 
 const Footer = styled.footer`
-    text-align: center;
-    padding: 10px;
-    background-color: #164863;
-    color: white;
-    margin-top: 130px;
+  text-align: center;
+  padding: 12px;
+  background-color: #164863;
+  color: white;
+  margin-top: auto;
 `;
 
 const Layout = () => {
@@ -43,13 +51,13 @@ const Layout = () => {
                 <aside>
                     <SideBar />
                 </aside>
-                <div className="pr">
+                <ContentArea>
                     <Navigation />
                     <MainFrame>
                         <Outlet />
-                        <BackToTopButton/>
+                        <BackToTopButton />
                     </MainFrame>
-                </div>
+                </ContentArea>
             </MainContent>
             <Footer>
                 Copyright © 2024. All rights reserved to DEPARTMENT of INFORMATION TECHNOLOGY - RMKEC

@@ -10,6 +10,7 @@ import menu from '../assets/menu.png';
 import view from '../assets/view.png';
 import dashboard from '../assets/dashboard.png';
 import vendor from '../assets/vendor.png';
+import { FaUserCheck, FaClipboardList } from 'react-icons/fa';
 const SidebarContainer = styled.div`
   background-color: white;
   min-height: 100vh; 
@@ -94,13 +95,13 @@ const SideBar = () => {
         </SidebarItem>
         {role!=="Viewer" && (<SidebarItem className={isActive('/dashboard/attendance')}>
           <Link to="attendance">
-            <img src={add} width="40px" height="40px" alt="Attendance" />
+            <FaUserCheck size={36} color="#000000" style={{ marginBottom: '5px' }} />
             Attendance
           </Link>
         </SidebarItem>)}
         <SidebarItem className={isActive('/dashboard/attendance-report')}>
           <Link to="attendance-report">
-            <img src={reports} width="40px" height="40px" alt="Attendance Report" />
+            <FaClipboardList size={36} color="#000000" style={{ marginBottom: '5px' }} />
             Attendance Report
           </Link>
         </SidebarItem>
