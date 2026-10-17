@@ -1,181 +1,318 @@
-import React, { useState, useEffect,useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import styled from 'styled-components';
-import { FaPizzaSlice, FaCoffee, FaAppleAlt, FaHamburger, FaCookieBite, FaBeer, FaCalendarAlt, FaSchool, FaClipboardList,FaPrint } from 'react-icons/fa';
+import {
+  FaCalendarAlt,
+  FaSchool,
+  FaPrint,
+  FaUsers,
+  FaUtensils,
+  FaRegCalendarAlt,
+} from 'react-icons/fa';
 import dayjs from 'dayjs';
 import Logo from '../assets/Logo.png';
 import { useReactToPrint } from 'react-to-print';
 
-const MenuContainer = styled.div`
+// --- Page & Card Layout ---
+
+const PageWrapper = styled.div`
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 10px 20px 40px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  max-width: 100%;
-  margin: 20px auto;
-  padding: 20px;
-  border-radius: 8px;
-  background: #f9f9f9;
-  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
 `;
 
-const EventDetails = styled.div`
-  margin-bottom: 20px;
+const PrintButton = styled.button`
+  align-self: flex-start;
+  margin-bottom: 16px;
+  padding: 9px 22px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #ffffff;
+  background-color: #0f3756;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 2px 4px rgba(15, 55, 86, 0.2);
+  transition: background-color 0.2s ease, transform 0.1s ease;
+
+  &:hover {
+    background-color: #09253b;
+  }
+
+  &:active {
+    transform: translateY(1px);
+  }
+`;
+
+const EventCard = styled.div`
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(15, 55, 86, 0.08);
+  border: 1px solid #e1e8ed;
+  padding: 32px 36px 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+
+  @media (max-width: 768px) {
+    padding: 20px 18px;
+  }
+`;
+
+// --- Card Header / Title ---
+
+const TitleSection = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
 `;
 
 const EventTitle = styled.h1`
-  font-size: 2rem;
-  color: #164863;
-  margin-bottom: 15px;
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: #103b5c;
   text-align: center;
   text-transform: uppercase;
+  letter-spacing: 0.04em;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 14px;
+  margin: 0;
+
+  .title-icon {
+    font-size: 1.9rem;
+    color: #103b5c;
+  }
+
+  @media (max-width: 768px) {
+    font-size: 1.35rem;
+    .title-icon {
+      font-size: 1.45rem;
+    }
+  }
 `;
 
-const EventInfoContainer = styled.div`
+const TitleDivider = styled.hr`
+  width: 100%;
+  border: none;
+  border-top: 1px solid #eef2f5;
+  margin: 20px 0 0 0;
+`;
+
+// --- Event Information (Left info + Right date panel) ---
+
+const EventInfoRow = styled.div`
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: center;
-  gap: 20px;
+  gap: 24px;
+
+  @media (max-width: 768px) {
+    flex-direction: column;
+    align-items: stretch;
+  }
 `;
 
-const EventInfo = styled.p`
-  font-size: 1.2rem;
-  color: #164863;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-weight: bold;
-`;
-
-const EventDate = styled(EventInfo)``;
-
-const NoOfPeople = styled(EventInfo)``;
-
-const DayInfo = styled(EventInfo)``;
-
-const MealsContainer = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 20px;
-`;
-
-const MealSection = styled.div`
+const EventInfoLeft = styled.div`
   display: flex;
   flex-direction: column;
-  border: 1px solid #ddd;
-  padding: 15px;
-  border-radius: 8px;
-  background-color: #ffffff;
-  box-shadow: 0 0 5px rgba(0, 0, 0, 0.1);
-  flex: 1 1 calc(50% - 20px);
-  box-sizing: border-box;
+  gap: 14px;
+  flex: 1;
+`;
+
+const InfoItem = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 1.28rem;
+  font-weight: 700;
+  color: #103b5c;
+
+  .info-icon {
+    font-size: 1.45rem;
+    color: #103b5c;
+    flex-shrink: 0;
+  }
+
+  @media (max-width: 768px) {
+    font-size: 1.1rem;
+    .info-icon {
+      font-size: 1.25rem;
+    }
+  }
+`;
+
+const VerticalDivider = styled.div`
+  width: 1px;
+  align-self: stretch;
+  background-color: #eef2f5;
+
+  @media (max-width: 768px) {
+    display: none;
+  }
+`;
+
+const DatePanel = styled.div`
+  background: #eaf3fb;
+  border-radius: 12px;
+  padding: 16px 28px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-width: 250px;
+  justify-content: flex-start;
+
+  .date-calendar-icon {
+    font-size: 2.1rem;
+    color: #103b5c;
+    flex-shrink: 0;
+  }
+
+  @media (max-width: 768px) {
+    justify-content: center;
+    padding: 14px 20px;
+  }
+`;
+
+const DateTextGroup = styled.div`
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+`;
+
+const DateMainText = styled.span`
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #103b5c;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+`;
+
+const DateSubText = styled.span`
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #103b5c;
+  margin-top: 2px;
+`;
+
+// --- Meals & Menu Sections ---
+
+const MealsList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  margin-top: 4px;
+`;
+
+const MealCard = styled.div`
+  background: #ffffff;
+  border: 1px solid #dbe6ef;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(15, 55, 86, 0.04);
 `;
 
 const MealHeader = styled.div`
+  background: #eaf3fb;
+  padding: 12px 20px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-  font-size: 1.2rem;
-  font-weight: bold;
-  color: #164863;
+  gap: 12px;
+  font-size: 1.22rem;
+  font-weight: 700;
+  color: #103b5c;
+
+  .meal-header-icon {
+    font-size: 1.25rem;
+    color: #103b5c;
+  }
 `;
 
-const ItemList = styled.div`
+const ItemTable = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 10px;
 `;
 
-const ItemEntry = styled.div`
+const ItemRow = styled.div`
   display: flex;
   justify-content: space-between;
-  border-bottom: 1px solid #ddd;
-  padding: 5px 0;
+  align-items: center;
+  padding: 12px 20px;
+  border-bottom: 1px solid #edf2f7;
+
+  &:last-child {
+    border-bottom: none;
+  }
 `;
 
 const ItemName = styled.span`
-  font-size: 1rem;
-  color: #333;
+  font-size: 1.05rem;
+  font-weight: 500;
+  color: #1f2937;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 `;
 
 const UnitBadge = styled.span`
-  font-size: 0.78rem;
-  color: #fff;
-  background: #164863;
+  font-size: 0.76rem;
+  color: #ffffff;
+  background: #103b5c;
   border-radius: 4px;
-  padding: 1px 6px;
-  margin-left: 6px;
-  vertical-align: middle;
+  padding: 2px 7px;
   font-weight: 500;
   letter-spacing: 0.02em;
   white-space: nowrap;
 `;
 
 const ItemQuantity = styled.span`
-  font-size: 1rem;
-  color: #333;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #103b5c;
+  text-align: right;
+  min-width: 60px;
 `;
 
-const CommonItemsContainer = styled.div`
-  text-align: center;
-  margin-top: 10px;
-  margin-left:120px;
-  margin-right:120px;
+const EmptyItemsNotice = styled.div`
+  padding: 16px 20px;
+  color: #6b7280;
+  font-size: 0.95rem;
+  font-style: italic;
 `;
 
-const ItemsContainer = styled.div`
-  display: flex;
-  justify-content: space-between;
-`;
-
-const VegCard = styled.div`
-  flex: 1;
-  margin-right: 40px; /* Space between Veg and Non-Veg cards */
-`;
-
-const NonVegCard = styled.div`
-  flex: 1;
-`;
-
-const PrintButton = styled.button`
-  align-self: flex-end;
-  margin-bottom: 20px;
-  padding: 10px 20px;
-  font-size: 1rem;
-  color: #fff;
-  background-color: #164863;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  &:hover {
-    background-color: #0d3449;
-  }
-`;
+// --- Print Header & Styling ---
 
 const PrintHeader = styled.div`
   display: none;
   margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid #103b5c;
 
-  .content {
-    margin-left: 180px;
+  .logo-title-row {
+    display: flex;
+    align-items: center;
+    gap: 20px;
   }
 
   img {
-    width: 150px;
+    width: 90px;
     height: auto;
-    margin-bottom: 10px;
   }
 
   h1 {
-    font-size: 30px;
+    font-size: 22px;
+    font-weight: 700;
+    color: #103b5c;
+    margin: 0;
   }
 
   @media print {
@@ -183,133 +320,159 @@ const PrintHeader = styled.div`
   }
 `;
 
-const getIconForMealType = (mealType) => {
-  switch (mealType) {
-    case 'Breakfast':
-      return <FaCoffee />;
-    case 'Lunch':
-      return <FaHamburger />;
-    case 'Dinner':
-      return <FaPizzaSlice />;
-    case 'Snacks':
-      return <FaCookieBite />;
-    case 'Beverages':
-      return <FaBeer />;
-    default:
-      return <FaAppleAlt />;
+// --- Reliable Date / Weekday Helper ---
+// Formats '2026-11-30' or ISO timestamp without timezone drift
+export const parseEventDateInfo = (rawDate, fallbackDay) => {
+  if (!rawDate) {
+    return {
+      formattedDate: '',
+      weekday: fallbackDay || '',
+    };
   }
+
+  let d;
+  if (typeof rawDate === 'string' && /^\d{4}-\d{2}-\d{2}/.test(rawDate)) {
+    const [year, month, day] = rawDate.slice(0, 10).split('-').map(Number);
+    d = dayjs(new Date(year, month - 1, day));
+  } else {
+    d = dayjs(rawDate);
+  }
+
+  if (!d.isValid()) {
+    return {
+      formattedDate: String(rawDate),
+      weekday: fallbackDay || '',
+    };
+  }
+
+  return {
+    formattedDate: d.format('DD MMM YYYY').toUpperCase(),
+    weekday: d.format('dddd'),
+  };
 };
 
 const EventDetail = () => {
   const [event, setEvent] = useState(null);
   const { eventId } = useParams();
   const componentRef = useRef();
-  
-  
+
   const handlePrint = useReactToPrint({
     content: () => componentRef.current,
   });
 
   useEffect(() => {
     if (eventId) {
-      axios.get(`${import.meta.env.VITE_RMK_MESS_URL}/event/eventdetail`, {
-        params: { eventId }
-      })
-      .then(response => {
-        setEvent(response.data);
-        console.log(response.data);
-      })
-      .catch(error => {
-        console.error("There was an error fetching the event data!", error);
-      });
+      axios
+        .get(`${import.meta.env.VITE_RMK_MESS_URL}/event/eventdetail`, {
+          params: { eventId },
+        })
+        .then((response) => {
+          setEvent(response.data);
+        })
+        .catch((error) => {
+          console.error('There was an error fetching the event data!', error);
+        });
     }
   }, [eventId]);
 
   if (!event) {
-    return <p>Loading...</p>;
+    return (
+      <PageWrapper>
+        <p style={{ color: '#103b5c', fontWeight: 600 }}>Loading event details...</p>
+      </PageWrapper>
+    );
   }
 
-
   const menuData = Array.isArray(event.meal_details) ? event.meal_details : [];
+  const { formattedDate, weekday } = parseEventDateInfo(event.event_date, event.day);
 
-  
   return (
-
-    <>
-    <PrintButton onClick={handlePrint}>
+    <PageWrapper>
+      <PrintButton onClick={handlePrint}>
         <FaPrint /> Print
       </PrintButton>
 
-    <MenuContainer ref={componentRef}>
-    <PrintHeader>
-        <div style={{ display: 'flex' }}>
-          <img src={Logo} alt="Logo" />
-          <div className="content">
-            <h1>FOOD MANAGEMENT SYSTEM</h1>
+      <EventCard ref={componentRef}>
+        <PrintHeader>
+          <div className="logo-title-row">
+            <img src={Logo} alt="RMK Logo" />
+            <div>
+              <h1>R.M.K. GROUP OF INSTITUTIONS</h1>
+              <p style={{ margin: '4px 0 0 0', color: '#4b5563', fontSize: '13px' }}>
+                FOOD MANAGEMENT SYSTEM
+              </p>
+            </div>
           </div>
-        </div>
-      </PrintHeader>
+        </PrintHeader>
 
-      <EventDetails>
-        <EventTitle><FaClipboardList /> {event.event_name}</EventTitle>
-        <EventInfoContainer>
-          <EventInfo><FaSchool /> {event.institution}</EventInfo>
-          <EventDate><FaCalendarAlt /> {dayjs(event.event_date).format("DD-MM-YYYY")}</EventDate>
-        </EventInfoContainer>
-        <NoOfPeople>No. of People: {event.no_of_people}</NoOfPeople>
-        <DayInfo>Day: {event.day}</DayInfo>
-      </EventDetails>
-      <MealsContainer>
-        {menuData.map((meal, index) => (
-          <MealSection key={index}>
-            <MealHeader>
-              {getIconForMealType(meal.mealType)}
-              {meal.mealType}
-            </MealHeader>
-            <ItemList>
-              <ItemsContainer>
-                <VegCard>
-                  {meal.items.filter(item => item.type === 'Veg').map((item, i) => (
-                    <ItemEntry key={i}>
-                      <ItemName>
-                        {item.name}
-                        {item.unit && <UnitBadge>{item.unit}</UnitBadge>}
-                      </ItemName>
-                      <ItemQuantity>{item.quantity}</ItemQuantity>
-                    </ItemEntry>
-                  ))}
-                </VegCard>
-                <NonVegCard>
-                  {meal.items.filter(item => item.type === 'Non-Veg').map((item, i) => (
-                    <ItemEntry key={i}>
-                      <ItemName>
-                        {item.name}
-                        {item.unit && <UnitBadge>{item.unit}</UnitBadge>}
-                      </ItemName>
-                      <ItemQuantity>{item.quantity}</ItemQuantity>
-                    </ItemEntry>
-                  ))}
-                </NonVegCard>
-              </ItemsContainer>
-              <CommonItemsContainer>
-                {meal.items.filter(item => item.type === 'Common').map((item, i) => (
-                  <ItemEntry key={i}>
-                    <ItemName>
-                      {item.name}
-                      {item.unit && <UnitBadge>{item.unit}</UnitBadge>}
-                    </ItemName>
-                    <ItemQuantity>{item.quantity}</ItemQuantity>
-                  </ItemEntry>
-                ))}
-              </CommonItemsContainer>
-            </ItemList>
-          </MealSection>
-        ))}
-      </MealsContainer>
-    </MenuContainer>
+        {/* 1. Event title & calendar icon centered */}
+        <TitleSection>
+          <EventTitle>
+            <FaCalendarAlt className="title-icon" />
+            <span>{event.event_name}</span>
+          </EventTitle>
+          <TitleDivider />
+        </TitleSection>
 
-    </>
+        {/* 2. Event info (Left: Institution, People count | Right: Light-blue Date Panel) */}
+        <EventInfoRow>
+          <EventInfoLeft>
+            <InfoItem>
+              <FaSchool className="info-icon" />
+              <span>{event.institution || 'RMK'}</span>
+            </InfoItem>
+            <InfoItem>
+              <FaUsers className="info-icon" />
+              <span>
+                {event.no_of_people ? `${event.no_of_people} people` : '—'}
+              </span>
+            </InfoItem>
+          </EventInfoLeft>
+
+          <VerticalDivider />
+
+          <DatePanel>
+            <FaRegCalendarAlt className="date-calendar-icon" />
+            <DateTextGroup>
+              <DateMainText>{formattedDate}</DateMainText>
+              <DateSubText>{weekday}</DateSubText>
+            </DateTextGroup>
+          </DatePanel>
+        </EventInfoRow>
+
+        {/* 3. Meal and menu section */}
+        <MealsList>
+          {menuData.map((meal, index) => {
+            const items = Array.isArray(meal.items) ? meal.items : [];
+
+            return (
+              <MealCard key={index}>
+                <MealHeader>
+                  <FaUtensils className="meal-header-icon" />
+                  <span>{meal.mealType || 'Meal'}</span>
+                </MealHeader>
+                {items.length === 0 ? (
+                  <EmptyItemsNotice>No items added for this meal.</EmptyItemsNotice>
+                ) : (
+                  <ItemTable>
+                    {items.map((item, itemIdx) => (
+                      <ItemRow key={itemIdx}>
+                        <ItemName>
+                          <span>{item.name}</span>
+                          {item.unit && <UnitBadge>{item.unit}</UnitBadge>}
+                        </ItemName>
+                        <ItemQuantity>{item.quantity}</ItemQuantity>
+                      </ItemRow>
+                    ))}
+                  </ItemTable>
+                )}
+              </MealCard>
+            );
+          })}
+        </MealsList>
+      </EventCard>
+    </PageWrapper>
   );
 };
 
-export default EventDetail;
+export default EventDetail;
