@@ -965,6 +965,16 @@ const AddEvent = () => {
                     </ItemGrid>
                   );
                 })}
+
+                {mealSection.items.length > 0 && (
+                  <GhostButton
+                    type="button"
+                    style={{ marginTop: '10px' }}
+                    onClick={() => setMealSections((prev) => addItem(prev, mealSection.uid))}
+                  >
+                    <FaPlus aria-hidden="true" /> Add Item
+                  </GhostButton>
+                )}
               </MealSection>
             );
           })}
