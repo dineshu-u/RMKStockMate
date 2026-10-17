@@ -90,6 +90,28 @@ const OptionMeta = styled.span`
   margin-top: 2px;
 `;
 
+const AddOption = styled.li`
+  padding: 10px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  color: #164863;
+  font-weight: 600;
+  border-top: 1px dashed #c9d6df;
+  background: #f7fafc;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  &:hover,
+  &[aria-active='true'] {
+    background: #e8f0fe;
+    color: #0b3954;
+  }
+  &[aria-disabled='true'] {
+    cursor: wait;
+    opacity: 0.7;
+  }
+`;
+
 const StatusItem = styled.li`
   padding: 10px;
   font-size: 0.9rem;
@@ -157,6 +179,8 @@ const SearchableSelect = ({
   ariaLabel,
   id,
   inputRef: externalInputRef,
+  onAddNew,
+  adding = false,
 }) => {
   const uid = useId();
   const listboxId = `${uid}-listbox`;
@@ -191,6 +215,18 @@ const SearchableSelect = ({
     );
   }, [options, query]);
 
+  const trimmedQuery = query.trim().replace(/\s+/g, ' ');
+  const exactMatchExists = useMemo(() => {
+    if (!trimmedQuery) return false;
+    const lower = trimmedQuery.toLowerCase();
+    return options.some((opt) => opt.label.trim().toLowerCase() === lower || opt.value.trim().toLowerCase() === lower);
+  }, [options, trimmedQuery]);
+
+  const showAddOption = Boolean(onAddNew && trimmedQuery && !exactMatchExists && !loading && !loadError);
+
+  const totalItemsCount = filtered.length + (showAddOption ? 1 : 0);
+  const addOptionIndex = showAddOption ? filtered.length : -1;
+
   useEffect(() => {
     if (!open) return;
     const handlePointerDown = (e) => {
@@ -222,6 +258,13 @@ const SearchableSelect = ({
     inputRefObj.current?.focus();
   };
 
+  const handleAddNew = () => {
+    if (!showAddOption || adding || !onAddNew) return;
+    onAddNew(trimmedQuery);
+    setOpen(false);
+    setQuery('');
+  };
+
   const clearSelection = () => {
     onChange('');
     setQuery('');
@@ -237,8 +280,9 @@ const SearchableSelect = ({
           openList();
         } else {
           setActiveIndex((i) => {
-            const next = Math.min(i + 1, filtered.length - 1);
-            return filtered.length === 0 ? -1 : Math.max(next, 0);
+            if (totalItemsCount === 0) return -1;
+            const next = Math.min(i + 1, totalItemsCount - 1);
+            return Math.max(next, 0);
           });
         }
         break;
@@ -251,19 +295,23 @@ const SearchableSelect = ({
       case 'Home':
         if (open) {
           e.preventDefault();
-          setActiveIndex(filtered.length > 0 ? 0 : -1);
+          setActiveIndex(totalItemsCount > 0 ? 0 : -1);
         }
         break;
       case 'End':
         if (open) {
           e.preventDefault();
-          setActiveIndex(filtered.length - 1);
+          setActiveIndex(totalItemsCount - 1);
         }
         break;
       case 'Enter':
-        if (open && activeIndex >= 0 && filtered[activeIndex]) {
+        if (open && activeIndex >= 0) {
           e.preventDefault();
-          selectOption(filtered[activeIndex]);
+          if (activeIndex === addOptionIndex) {
+            handleAddNew();
+          } else if (filtered[activeIndex]) {
+            selectOption(filtered[activeIndex]);
+          }
         }
         break;
       case 'Escape':
@@ -293,8 +341,10 @@ const SearchableSelect = ({
           aria-controls={listboxId}
           aria-autocomplete="list"
           aria-activedescendant={
-            open && activeIndex >= 0 && filtered[activeIndex]
-              ? `${uid}-opt-${activeIndex}`
+            open && activeIndex >= 0
+              ? activeIndex === addOptionIndex
+                ? `${uid}-opt-add`
+                : `${uid}-opt-${activeIndex}`
               : undefined
           }
           aria-invalid={Boolean(error)}
@@ -302,7 +352,7 @@ const SearchableSelect = ({
           aria-label={ariaLabel}
           aria-required={required}
           autoComplete="off"
-          disabled={disabled}
+          disabled={disabled || adding}
           placeholder={placeholder}
           value={displayValue}
           $invalid={Boolean(error)}
@@ -342,7 +392,7 @@ const SearchableSelect = ({
               )}
             </ErrorItem>
           )}
-          {!loading && !loadError && filtered.length === 0 && (
+          {!loading && !loadError && filtered.length === 0 && !showAddOption && (
             <StatusItem>{emptyMessage}</StatusItem>
           )}
           {!loading &&
@@ -363,6 +413,21 @@ const SearchableSelect = ({
                 {opt.meta && <OptionMeta>{opt.meta}</OptionMeta>}
               </Option>
             ))}
+          {showAddOption && (
+            <AddOption
+              id={`${uid}-opt-add`}
+              role="option"
+              aria-selected="false"
+              aria-active={activeIndex === addOptionIndex}
+              aria-disabled={adding}
+              ref={activeIndex === addOptionIndex ? activeOptionRef : null}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={handleAddNew}
+              onMouseEnter={() => setActiveIndex(addOptionIndex)}
+            >
+              {adding ? `Adding "${trimmedQuery}"…` : `+ Add "${trimmedQuery}"`}
+            </AddOption>
+          )}
         </Dropdown>
       )}
       {error && (
@@ -398,4 +463,6 @@ SearchableSelect.propTypes = {
   ariaLabel: PropTypes.string,
   id: PropTypes.string,
   inputRef: PropTypes.shape({ current: PropTypes.any }),
+  onAddNew: PropTypes.func,
+  adding: PropTypes.bool,
 };

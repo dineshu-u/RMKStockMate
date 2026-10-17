@@ -3,7 +3,7 @@ const db = require('../db');
 const fs = require('fs');
 const path = require('path');
 const PDFDocument = require('pdfkit');
-const nodemailer = require('nodemailer');
+const { sendEmail, generateReportFilename } = require('../utils/email');
 require('dotenv').config();
 const router = express.Router();
 
@@ -881,26 +881,9 @@ async function generateComparisonPDF(reportData, fdate1, tdate1, fdate2, tdate2,
 
 // Send email with PDF attachment
 async function sendReportEmail(recipientEmail, subject, message, pdfBuffer, fdate1, tdate1, fdate2, tdate2) {
-  // Create transporter
-  const transporter = nodemailer.createTransport({
-    host: process.env.EMAIL_HOST,
-    port: parseInt(process.env.EMAIL_PORT || '465'),
-    secure: process.env.EMAIL_SECURE === 'true',
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_APP_PASSWORD
-    }
-  });
+  const fileName = generateReportFilename('Item Wise Comparison', `${fdate1}_to_${tdate2}`);
 
-  // Verify connection
-  await transporter.verify();
-
-  // Generate filename
-  const fileName = `RMKStockMate_Item_Wise_Comparison_${fdate1}_to_${tdate2}.pdf`;
-
-  // Send email
-  const mailOptions = {
-    from: process.env.EMAIL_USER,
+  await sendEmail({
     to: recipientEmail,
     subject: subject || 'RMKStockMate - Item-Wise Period Comparison Report',
     text: message || 'Please find attached the Item-Wise Period Comparison Report.',
@@ -911,9 +894,7 @@ async function sendReportEmail(recipientEmail, subject, message, pdfBuffer, fdat
         contentType: 'application/pdf'
       }
     ]
-  };
-
-  await transporter.sendMail(mailOptions);
+  });
 }
 
 module.exports = router;

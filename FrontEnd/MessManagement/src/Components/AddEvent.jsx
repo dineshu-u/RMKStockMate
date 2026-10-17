@@ -61,7 +61,7 @@ const validateState = ({ eventName, institution, eventDate, noOfPeople, mealSect
   mealSections.forEach((section) => {
     if (!section.mealType) addErr(`${section.id}-mealType`, 'Select a meal type.');
     section.items.forEach((item) => {
-      if (!item.name) addErr(`${item.id}-name`, 'Select an item from the stock list.');
+      if (!item.name) addErr(`${item.id}-name`, 'Select or add an event item.');
       const q = String(item.quantity).trim();
       if (q === '') {
         addErr(`${item.id}-quantity`, 'Quantity is required.');
@@ -346,7 +346,7 @@ const Holder = styled.div`
   flex-wrap: wrap;
 `;
 
-const EmptyStockNote = styled.p`
+const EmptyItemsNote = styled.p`
   color: #46617a;
   font-size: 0.9rem;
   margin: 4px 0 0;
@@ -481,9 +481,10 @@ const AddEvent = () => {
   const [pendingDelete, setPendingDelete] = useState(null);
 
   const [institutions, setInstitutions] = useState(FALLBACK_INSTITUTIONS);
-  const [stockItems, setStockItems] = useState([]);
-  const [stockLoading, setStockLoading] = useState(true);
-  const [stockError, setStockError] = useState('');
+  const [eventItems, setEventItems] = useState([]);
+  const [itemsLoading, setItemsLoading] = useState(true);
+  const [itemsError, setItemsError] = useState('');
+  const [addingItem, setAddingItem] = useState(false);
 
   const fieldRefs = useRef({});
   const dateWrapRef = useRef(null);
@@ -513,35 +514,83 @@ const AddEvent = () => {
     };
   }, []);
 
-  const loadStock = () => {
-    setStockLoading(true);
-    setStockError('');
+  const loadEventItems = () => {
+    setItemsLoading(true);
+    setItemsError('');
     axios
-      .get(`${API_URL}/stocks/availablestock`)
+      .get(`${API_URL}/event/items`)
       .then((res) => {
-        const data = Array.isArray(res?.data?.data) ? res.data.data : [];
-        setStockItems(data);
-        setStockLoading(false);
+        const data = Array.isArray(res?.data) ? res.data : [];
+        setEventItems(data);
+        setItemsLoading(false);
       })
       .catch(() => {
-        setStockError('Could not load stock items.');
-        setStockLoading(false);
+        setItemsError('Could not load event items.');
+        setItemsLoading(false);
       });
   };
 
   useEffect(() => {
-    loadStock();
+    loadEventItems();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const handleAddNewItem = (mealId, itemId, newItemName) => {
+    const trimmed = newItemName.trim().replace(/\s+/g, ' ');
+    if (!trimmed) return;
+
+    // Check locally first to avoid unnecessary network call
+    const existing = eventItems.find(
+      (it) => it.name.trim().toLowerCase() === trimmed.toLowerCase()
+    );
+    if (existing) {
+      changeItem(mealId, itemId, 'name', existing.name);
+      return;
+    }
+
+    setAddingItem(true);
+    axios
+      .post(`${API_URL}/event/items`, { name: trimmed })
+      .then((res) => {
+        const created = res?.data?.item;
+        if (created && created.name) {
+          setEventItems((prev) => {
+            const exists = prev.some((it) => it.id === created.id || it.name.toLowerCase() === created.name.toLowerCase());
+            return exists ? prev : [...prev, created].sort((a, b) => a.name.localeCompare(b.name));
+          });
+          changeItem(mealId, itemId, 'name', created.name);
+          toast.success(`Event item "${created.name}" added successfully!`);
+        }
+      })
+      .catch((err) => {
+        if (err.response?.status === 409) {
+          const existingItem = err.response?.data?.item;
+          const matchedName = existingItem?.name || trimmed;
+          changeItem(mealId, itemId, 'name', matchedName);
+          toast.info(err.response?.data?.message || `"${matchedName}" already exists.`);
+          if (existingItem) {
+            setEventItems((prev) => {
+              const exists = prev.some((it) => it.id === existingItem.id);
+              return exists ? prev : [...prev, existingItem].sort((a, b) => a.name.localeCompare(b.name));
+            });
+          }
+        } else {
+          const errMsg = err.response?.data?.message || 'Failed to create event item.';
+          toast.error(errMsg);
+        }
+      })
+      .finally(() => {
+        setAddingItem(false);
+      });
+  };
+
   const itemOptions = useMemo(
     () =>
-      stockItems.map((s) => ({
-        value: s.itemName,
-        label: s.itemName,
-        meta: `${s.category} · Available: ${s.quantity}`,
+      eventItems.map((s) => ({
+        value: s.name,
+        label: s.name,
       })),
-    [stockItems]
+    [eventItems]
   );
 
   const institutionOptions = useMemo(
@@ -918,15 +967,17 @@ const AddEvent = () => {
                     <SearchableSelect
                       options={itemOptions}
                       value={item.name}
-                      loading={stockLoading}
-                      loadError={stockError}
-                      onRetry={loadStock}
+                      loading={itemsLoading}
+                      loadError={itemsError}
+                      onRetry={loadEventItems}
                       onChange={(value) => changeItem(section.id, item.id, 'name', value)}
-                      placeholder="Search stock item…"
+                      onAddNew={(typedName) => handleAddNewItem(section.id, item.id, typedName)}
+                      adding={addingItem}
+                      placeholder="Search event item…"
                       ariaLabel={`Item ${itemIdx + 1} in ${section.mealType || 'meal'}`}
                       required
                       error={errors[`${item.id}-name`]}
-                      emptyMessage="No stock item matches your search"
+                      emptyMessage="No event item matches your search"
                       inputRef={setFieldRef(`${item.id}-name`)}
                     />
                   </FieldGroup>
@@ -998,11 +1049,11 @@ const AddEvent = () => {
                 </ItemRow>
               ))}
 
-              {stockError && !stockLoading && (
-                <EmptyStockNote role="alert">
-                  Stock items could not be loaded. Existing selections are kept — use
+              {itemsError && !itemsLoading && (
+                <EmptyItemsNote role="alert">
+                  Event items could not be loaded. Existing selections are kept — use
                   Retry on any item field to load the list again.
-                </EmptyStockNote>
+                </EmptyItemsNote>
               )}
             </MealSection>
           ))}

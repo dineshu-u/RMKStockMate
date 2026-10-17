@@ -40,12 +40,21 @@ export const parseValidityExpiry = (validity) => {
 
 // Status rules:
 //   diff < 0        -> Expired (red)
-//   0 .. 3 days     -> Expiring Soon (amber)  [today and the next 3 days]
+//   0 .. 3 days     -> About to Expire (amber)  [today and the next 3 days]
 //   more than 3     -> Valid (green)
 //   unparseable     -> Invalid Date (gray)
 export const getLicenseStatus = (validity, today = dayjs()) => {
   const expiry = parseValidityExpiry(validity);
-  if (!expiry) return { tone: 'gray', label: 'Invalid Date', note: '' };
+  if (!expiry) {
+    return {
+      tone: 'gray',
+      label: 'Invalid Date',
+      statusCode: 'INVALID',
+      expiry: null,
+      diff: null,
+      note: '',
+    };
+  }
 
   const diff = expiry.startOf('day').diff(dayjs(today).startOf('day'), 'day');
 
@@ -53,17 +62,81 @@ export const getLicenseStatus = (validity, today = dayjs()) => {
     return {
       tone: 'red',
       label: 'Expired',
+      statusCode: 'EXPIRED',
+      expiry,
+      diff,
       note: diff === -1 ? 'Expired yesterday' : `Expired ${Math.abs(diff)} days ago`,
     };
   }
   if (diff <= 3) {
     return {
       tone: 'amber',
-      label: 'Expiring Soon',
+      label: 'About to Expire',
+      statusCode: 'ABOUT_TO_EXPIRE',
+      expiry,
+      diff,
       note: diff === 0 ? 'Expires today' : diff === 1 ? 'Expires tomorrow' : `Expires in ${diff} days`,
     };
   }
-  return { tone: 'green', label: 'Valid', note: '' };
+  return {
+    tone: 'green',
+    label: 'Valid',
+    statusCode: 'VALID',
+    expiry,
+    diff,
+    note: '',
+  };
+};
+
+// Priority ordering:
+// 1. Expired
+// 2. About to Expire
+// 3. Valid
+// 4. Invalid Date / Missing
+const STATUS_PRIORITY_ORDER = {
+  EXPIRED: 1,
+  ABOUT_TO_EXPIRE: 2,
+  VALID: 3,
+  INVALID: 4,
+};
+
+export const compareVendorsByStatusPriority = (a, b, today = dayjs()) => {
+  const statusA = getLicenseStatus(a?.validity, today);
+  const statusB = getLicenseStatus(b?.validity, today);
+
+  const priorityA = STATUS_PRIORITY_ORDER[statusA.statusCode] ?? 99;
+  const priorityB = STATUS_PRIORITY_ORDER[statusB.statusCode] ?? 99;
+
+  if (priorityA !== priorityB) {
+    return priorityA - priorityB;
+  }
+
+  // Same status group:
+  if (statusA.statusCode === 'EXPIRED') {
+    // Within Expired: most recently expired first (e.g., -1 days ago before -90 days ago)
+    const timeA = statusA.expiry ? statusA.expiry.valueOf() : 0;
+    const timeB = statusB.expiry ? statusB.expiry.valueOf() : 0;
+    if (timeA !== timeB) {
+      return timeB - timeA;
+    }
+  } else if (statusA.statusCode === 'ABOUT_TO_EXPIRE' || statusA.statusCode === 'VALID') {
+    // Within About to Expire or Valid: nearest expiry date first
+    const timeA = statusA.expiry ? statusA.expiry.valueOf() : 0;
+    const timeB = statusB.expiry ? statusB.expiry.valueOf() : 0;
+    if (timeA !== timeB) {
+      return timeA - timeB;
+    }
+  }
+
+  // Tie-breaker: alphabetical by vendor name, then id
+  const nameCompare = String(a?.name ?? '').localeCompare(String(b?.name ?? ''));
+  if (nameCompare !== 0) return nameCompare;
+  return Number(a?.id ?? 0) - Number(b?.id ?? 0);
+};
+
+export const sortVendorsByStatusPriority = (vendors, today = dayjs()) => {
+  if (!Array.isArray(vendors)) return [];
+  return [...vendors].sort((a, b) => compareVendorsByStatusPriority(a, b, today));
 };
 
 // ---------- Add/Edit Vendor input mask ----------

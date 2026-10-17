@@ -148,6 +148,81 @@ router.get('/eventdetail', (req, res) => {
     res.status(200).json(result[0]); // Send the first result object
   });
 });
+// ---------------------------------------------------------------------
+// Event Items endpoints (event_items table)
+// ---------------------------------------------------------------------
+
+// GET /event/items - List all event items (optional ?q= search filter)
+router.get('/items', (req, res) => {
+  const { q } = req.query;
+  let sql = 'SELECT id, name, unit, created_at FROM event_items';
+  const params = [];
+
+  if (isNonEmptyString(q)) {
+    sql += ' WHERE name LIKE ?';
+    params.push(`%${q.trim()}%`);
+  }
+
+  sql += ' ORDER BY name ASC';
+
+  db.query(sql, params, (err, rows) => {
+    if (err) {
+      console.error('Error fetching event items:', err);
+      return res.status(500).json({ message: 'Error fetching event items', error: err });
+    }
+    res.status(200).json(rows);
+  });
+});
+
+// POST /event/items - Create a new event item
+router.post('/items', (req, res) => {
+  const rawName = req.body?.name;
+  const rawUnit = req.body?.unit;
+
+  if (!isNonEmptyString(rawName)) {
+    return res.status(400).json({ message: 'Item name is required.' });
+  }
+
+  const name = rawName.trim().replace(/\s+/g, ' ');
+  const unit = isNonEmptyString(rawUnit) ? rawUnit.trim() : 'nos';
+
+  // Check if item already exists (case-insensitive check)
+  const checkSql = 'SELECT id, name, unit, created_at FROM event_items WHERE LOWER(name) = LOWER(?) LIMIT 1';
+  db.query(checkSql, [name], (checkErr, checkRows) => {
+    if (checkErr) {
+      console.error('Error checking duplicate event item:', checkErr);
+      return res.status(500).json({ message: 'Error verifying event item', error: checkErr });
+    }
+
+    if (checkRows && checkRows.length > 0) {
+      return res.status(409).json({
+        message: `An event item named "${checkRows[0].name}" already exists.`,
+        item: checkRows[0]
+      });
+    }
+
+    const insertSql = 'INSERT INTO event_items (name, unit) VALUES (?, ?)';
+    db.query(insertSql, [name, unit], (insertErr, result) => {
+      if (insertErr) {
+        if (insertErr.code === 'ER_DUP_ENTRY') {
+          return res.status(409).json({ message: `An event item named "${name}" already exists.` });
+        }
+        console.error('Error creating event item:', insertErr);
+        return res.status(500).json({ message: 'Error creating event item', error: insertErr });
+      }
+
+      res.status(201).json({
+        message: 'Event item created successfully',
+        item: {
+          id: result.insertId,
+          name,
+          unit
+        }
+      });
+    });
+  });
+});
+
 router.post('/vendors', (req, res) => {
   const { name, address, license_no, validity } = req.body;
   const query = 'INSERT INTO vendors (name, address, license_no, validity) VALUES (?, ?, ?, ?)';

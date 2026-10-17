@@ -1,11 +1,16 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import axios from 'axios';
 import styled from 'styled-components';
 import { FaSearch, FaEdit, FaTrash, FaTimes } from 'react-icons/fa';
 import { useReactToPrint } from 'react-to-print';
 import { FaPrint } from 'react-icons/fa';
 import Logo from '../assets/Logo.png';
-import { getLicenseStatus, maskValidityInput, validateValidityRange } from '../utils/vendorLicense';
+import {
+  getLicenseStatus,
+  maskValidityInput,
+  validateValidityRange,
+  sortVendorsByStatusPriority,
+} from '../utils/vendorLicense';
 
 const PrintButton = styled.button`
   align-self: flex-end;
@@ -262,9 +267,19 @@ const VendorList = () => {
       });
   }, []);
 
-  const filteredVendors = vendors.filter(vendor =>
-    vendor.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const sortedVendors = useMemo(() => {
+    return sortVendorsByStatusPriority(vendors);
+  }, [vendors]);
+
+  const filteredVendors = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return sortedVendors;
+    return sortedVendors.filter(vendor =>
+      (vendor.name || '').toLowerCase().includes(term) ||
+      (vendor.address || '').toLowerCase().includes(term) ||
+      (vendor.license_no || '').toLowerCase().includes(term)
+    );
+  }, [sortedVendors, searchTerm]);
 
   const deleteVendor = (id) => {
     axios.delete(`${import.meta.env.VITE_RMK_MESS_URL}/event/vendors/${id}`)
