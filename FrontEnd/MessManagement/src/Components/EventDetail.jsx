@@ -103,6 +103,19 @@ const ItemName = styled.span`
   color: #333;
 `;
 
+const UnitBadge = styled.span`
+  font-size: 0.78rem;
+  color: #fff;
+  background: #164863;
+  border-radius: 4px;
+  padding: 1px 6px;
+  margin-left: 6px;
+  vertical-align: middle;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+`;
+
 const ItemQuantity = styled.span`
   font-size: 1rem;
   color: #333;
@@ -258,7 +271,10 @@ const EventDetail = () => {
                 <VegCard>
                   {meal.items.filter(item => item.type === 'Veg').map((item, i) => (
                     <ItemEntry key={i}>
-                      <ItemName>{item.name}</ItemName>
+                      <ItemName>
+                        {item.name}
+                        {item.unit && <UnitBadge>{item.unit}</UnitBadge>}
+                      </ItemName>
                       <ItemQuantity>{item.quantity}</ItemQuantity>
                     </ItemEntry>
                   ))}
@@ -266,7 +282,10 @@ const EventDetail = () => {
                 <NonVegCard>
                   {meal.items.filter(item => item.type === 'Non-Veg').map((item, i) => (
                     <ItemEntry key={i}>
-                      <ItemName>{item.name}</ItemName>
+                      <ItemName>
+                        {item.name}
+                        {item.unit && <UnitBadge>{item.unit}</UnitBadge>}
+                      </ItemName>
                       <ItemQuantity>{item.quantity}</ItemQuantity>
                     </ItemEntry>
                   ))}
@@ -275,7 +294,10 @@ const EventDetail = () => {
               <CommonItemsContainer>
                 {meal.items.filter(item => item.type === 'Common').map((item, i) => (
                   <ItemEntry key={i}>
-                    <ItemName>{item.name}</ItemName>
+                    <ItemName>
+                      {item.name}
+                      {item.unit && <UnitBadge>{item.unit}</UnitBadge>}
+                    </ItemName>
                     <ItemQuantity>{item.quantity}</ItemQuantity>
                   </ItemEntry>
                 ))}

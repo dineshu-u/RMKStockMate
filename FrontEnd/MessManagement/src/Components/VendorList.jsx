@@ -5,7 +5,7 @@ import { FaSearch, FaEdit, FaTrash, FaTimes } from 'react-icons/fa';
 import { useReactToPrint } from 'react-to-print';
 import { FaPrint } from 'react-icons/fa';
 import Logo from '../assets/Logo.png';
-import { getLicenseStatus, maskValidityInput, validateValidityRange } from '../utils/vendorLicense';
+import { getLicenseStatus, maskValidityInput, validateValidityRange, parseValidityExpiry } from '../utils/vendorLicense';
 
 const PrintButton = styled.button`
   align-self: flex-end;
@@ -262,9 +262,39 @@ const VendorList = () => {
       });
   }, []);
 
-  const filteredVendors = vendors.filter(vendor =>
-    vendor.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredVendors = vendors
+    .filter(vendor =>
+      vendor.name.toLowerCase().includes(searchTerm.toLowerCase())
+    )
+    .slice()
+    .sort((a, b) => {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      // Compute diff in days for each vendor (null = unparseable → push to bottom)
+      const getDiff = (vendor) => {
+        const expiry = parseValidityExpiry(vendor.validity);
+        if (!expiry) return Infinity;
+        return Math.floor((expiry.toDate() - today) / 86400000);
+      };
+
+      // Group: 0 = expired, 1 = expiring soon (0-3 days), 2 = valid, 3 = invalid
+      const getGroup = (diff) => {
+        if (diff === Infinity) return 3;
+        if (diff < 0) return 0;
+        if (diff <= 3) return 1;
+        return 2;
+      };
+
+      const diffA = getDiff(a);
+      const diffB = getDiff(b);
+      const groupA = getGroup(diffA);
+      const groupB = getGroup(diffB);
+
+      if (groupA !== groupB) return groupA - groupB;
+      // Within each group, sort by ascending diff (soonest / most recently expired first)
+      return diffA - diffB;
+    });
 
   const deleteVendor = (id) => {
     axios.delete(`${import.meta.env.VITE_RMK_MESS_URL}/event/vendors/${id}`)

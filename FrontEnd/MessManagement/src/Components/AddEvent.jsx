@@ -13,6 +13,7 @@ import {
   INSTITUTIONS,
   MEAL_TYPES,
   ITEM_TYPES,
+  EVENT_ITEM_UNITS,
   INSTITUTION_ENDPOINT,
   EVENT_ITEM_ENDPOINT,
   createMealSection,
@@ -475,7 +476,10 @@ const AddEvent = () => {
   // string); the label is the name. Identity is never the display name.
   const itemOptions = useMemo(
     () =>
-      eventItems.map((item) => ({ value: String(item.id), label: item.name })),
+      eventItems.map((item) => ({
+        value: String(item.id),
+        label: item.unit ? `${item.name} (${item.unit})` : item.name,
+      })),
     [eventItems]
   );
 
@@ -550,7 +554,8 @@ const AddEvent = () => {
       mealUid,
       itemUid,
       name: normalizeItemName(query),
-      errors: { name: '' },
+      unit: '',
+      errors: { name: '', unit: '' },
       saving: false,
       error: '',
     });
@@ -563,7 +568,7 @@ const AddEvent = () => {
   const handleSaveNewItem = async () => {
     if (!addItemDraft || addItemDraft.saving) return;
 
-    const validation = validateEventItemDraft({ name: addItemDraft.name });
+    const validation = validateEventItemDraft({ name: addItemDraft.name, unit: addItemDraft.unit });
     if (!validation.valid) {
       setAddItemDraft((prev) => (prev ? { ...prev, errors: validation.errors } : prev));
       return;
@@ -574,6 +579,7 @@ const AddEvent = () => {
     try {
       const response = await axios.post(`${API_URL}${EVENT_ITEM_ENDPOINT}`, {
         name: validation.name,
+        unit: validation.unit,
       });
 
       const created = normalizeEventItems({ items: [response.data?.item] })[0];
@@ -1015,6 +1021,34 @@ const AddEvent = () => {
                 aria-describedby={addItemDraft.errors.name ? 'new-item-name-error' : undefined}
               />
               <ItemError id="new-item-name-error" message={addItemDraft.errors.name} />
+            </FormGroup>
+
+            <FormGroup>
+              <Label htmlFor="new-item-unit">Unit *</Label>
+              <Select
+                id="new-item-unit"
+                value={addItemDraft.unit}
+                onChange={(e) =>
+                  setAddItemDraft((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          unit: e.target.value,
+                          error: '',
+                          errors: { ...prev.errors, unit: '' },
+                        }
+                      : prev
+                  )
+                }
+                aria-invalid={addItemDraft.errors.unit ? true : undefined}
+                aria-describedby={addItemDraft.errors.unit ? 'new-item-unit-error' : undefined}
+              >
+                <option value="">Select a unit…</option>
+                {EVENT_ITEM_UNITS.map((u) => (
+                  <option key={u} value={u}>{u}</option>
+                ))}
+              </Select>
+              <ItemError id="new-item-unit-error" message={addItemDraft.errors.unit} />
             </FormGroup>
 
             {addItemDraft.error && <ItemError id="new-item-error" message={addItemDraft.error} />}

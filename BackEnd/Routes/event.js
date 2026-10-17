@@ -96,12 +96,52 @@ router.get('/eventdetail', (req, res) => {
       return res.status(500).send("Error fetching event details");
     }
 
-    // Check if result is empty
     if (result.length === 0) {
       return res.status(404).json({ error: 'Event not found' });
     }
 
-    res.status(200).json(result[0]); // Send the first result object
+    const event = result[0];
+
+    // Parse meal_details if it came back as a string (MySQL JSON column).
+    const mealDetails = Array.isArray(event.meal_details)
+      ? event.meal_details
+      : (() => { try { return JSON.parse(event.meal_details || '[]'); } catch { return []; } })();
+
+    // Collect all itemIds that reference the event_items catalogue so we can
+    // look up their units in a single query.
+    const itemIds = [
+      ...new Set(
+        mealDetails
+          .flatMap((meal) => (Array.isArray(meal?.items) ? meal.items : []))
+          .map((item) => Number(item?.itemId))
+          .filter((id) => Number.isInteger(id) && id > 0)
+      ),
+    ];
+
+    const attachUnits = (unitMap) => {
+      const enriched = mealDetails.map((meal) => ({
+        ...meal,
+        items: (Array.isArray(meal?.items) ? meal.items : []).map((item) => ({
+          ...item,
+          unit: unitMap.get(Number(item?.itemId)) ?? null,
+        })),
+      }));
+      res.status(200).json({ ...event, meal_details: enriched });
+    };
+
+    if (itemIds.length === 0) {
+      return attachUnits(new Map());
+    }
+
+    db.query('SELECT id, unit FROM event_items WHERE id IN (?)', [itemIds], (err2, rows) => {
+      if (err2) {
+        console.error("Error fetching event item units:", err2);
+        // Still return the event without units rather than failing hard.
+        return attachUnits(new Map());
+      }
+      const unitMap = new Map(rows.map((row) => [row.id, row.unit]));
+      attachUnits(unitMap);
+    });
   });
 });
 router.post('/vendors', (req, res) => {

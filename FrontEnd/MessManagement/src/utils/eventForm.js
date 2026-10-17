@@ -29,6 +29,28 @@ export const INSTITUTIONS = [
 export const MEAL_TYPES = ['Breakfast', 'Lunch', 'Dinner', 'Snacks', 'Beverages'];
 export const ITEM_TYPES = ['Veg', 'Non-Veg', 'Common'];
 
+// Controlled unit list – must stay in sync with BackEnd/utils/eventItems.js UNITS.
+export const EVENT_ITEM_UNITS = [
+  'kg',
+  'g',
+  'quintal',
+  'l',
+  'ml',
+  'nos',
+  'piece',
+  'dozen',
+  'packet',
+  'box',
+  'tin',
+  'bottle',
+  'can',
+  'sachet',
+  'bunch',
+  'bundle',
+  'plate',
+  'cup',
+];
+
 // Endpoints used by the form.
 //  - /attendance/config -> { institutions: [{ id, name, categories }] }
 //  - /eventItems        -> { items: [{ id, name }] }  (event item catalogue)
@@ -192,7 +214,8 @@ export const normalizeEventItems = (payload) => {
     if (!Number.isInteger(id) || id <= 0 || !name) return;
     if (seen.has(id)) return;
     seen.add(id);
-    items.push({ id, name });
+    const unit = String(entry.unit ?? '').trim().toLowerCase() || null;
+    items.push({ id, name, unit });
   });
   return items.sort((a, b) => a.name.localeCompare(b.name));
 };
@@ -217,10 +240,11 @@ export const findEventItemByName = (items, name) => {
 // New event item draft (inline "+ Add ..." form)
 // ---------------------------------------------------------------------------
 
-// Returns { valid, errors, name } for a draft, mirroring the server rules.
-export const validateEventItemDraft = ({ name }) => {
-  const errors = { name: '' };
+// Returns { valid, errors, name, unit } for a draft, mirroring the server rules.
+export const validateEventItemDraft = ({ name, unit }) => {
+  const errors = { name: '', unit: '' };
   const cleanName = normalizeItemName(name);
+  const cleanUnit = String(unit ?? '').trim().toLowerCase();
 
   if (!cleanName) {
     errors.name = 'Item name is required.';
@@ -228,7 +252,14 @@ export const validateEventItemDraft = ({ name }) => {
     errors.name = `Item name must be ${MAX_ITEM_NAME_LENGTH} characters or fewer.`;
   }
 
-  return { valid: !errors.name, errors, name: cleanName };
+  if (!cleanUnit) {
+    errors.unit = 'Unit is required.';
+  } else if (!EVENT_ITEM_UNITS.includes(cleanUnit)) {
+    errors.unit = 'Please select a valid unit.';
+  }
+
+  const valid = !errors.name && !errors.unit;
+  return { valid, errors, name: cleanName, unit: cleanUnit };
 };
 
 // ---------------------------------------------------------------------------
